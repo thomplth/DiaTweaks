@@ -1,3 +1,4 @@
+#import <AppKit/AppKit.h>
 #import <spawn.h>
 #import <sys/wait.h>
 #import "PasswordsParts.h"
@@ -84,6 +85,14 @@ static pid_t launch(NSString *home) {
     close(fromDia[1]);
     if (status != 0) return 0;
     DPDevToolsAttach(toDia[1], fromDia[0]);
+    // --no-startup-window still leaves it a window (Dia's sign-in on a new profile), which opens a few seconds in and
+    // shows the app again, so it's hidden until then.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        for (int tries = 0; tries < 200; tries++, usleep(100000)) {
+            NSRunningApplication *copy = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+            if (copy && !copy.hidden) [copy hide];
+        }
+    });
     return pid;
 }
 
