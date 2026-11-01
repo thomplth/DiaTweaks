@@ -30,7 +30,7 @@ static void DPPopover_show(NSPopover *self, SEL _cmd, NSRect rect, NSView *ancho
 }
 
 static void DPInstallQuietDownloads(void) {
-    DPDownloadsMenu = objc_getClass("_TtC15DownloadsButton27DownloadsMenuViewController");
+    DPDownloadsMenu = objc_getClass(DPDiaDownloadsMenu);
     DPHookClass(NSPopover.class, @selector(showRelativeToRect:ofView:preferredEdge:), (IMP)DPPopover_show);
 }
 
@@ -43,6 +43,6 @@ DP_PATCH(DPQuietDownloads) {
     .tint = @"systemOrangeColor",
     .section = @"Toolbar",
     .page = @"https://github.com/thomplth/DiaTweaks/blob/main/docs/tweaks/Dont-pop-up-downloads.md",
-    .classes = DPClasses("_TtC15DownloadsButton27DownloadsMenuViewController"),
+    .classes = DPClasses(DPDiaDownloadsMenu),
     .install = DPInstallQuietDownloads,
 };
