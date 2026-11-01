@@ -1,12 +1,14 @@
 #!/bin/sh
-# Builds build/DiaTweaks.zip, the file a release carries and diapatch self-update installs.
+# Builds build/DiaTweaks.zip for release $1, the file a release carries and diapatch self-update installs.
 set -eu
 cd "$(dirname "$0")/.."
+tag=${1:?usage: scripts/package <tag>}
 make -s
-cargo build --release --quiet --manifest-path cli/Cargo.toml
+cargo build --release --locked --quiet --manifest-path cli/Cargo.toml
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 cp build/diapatch build/DiaPatches.dylib build/patches.json "${CARGO_TARGET_DIR:-cli/target}/release/diatweaks" "$stage/"
+printf '%s\n' "$tag" > "$stage/VERSION"
 rm -f build/DiaTweaks.zip
 ditto -c -k "$stage" build/DiaTweaks.zip
 echo "build/DiaTweaks.zip $(shasum -a 256 build/DiaTweaks.zip | cut -d' ' -f1)"

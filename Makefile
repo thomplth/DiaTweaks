@@ -5,11 +5,16 @@ EXTENSION := $(foreach file,manifest.json page.js bridge.js worker.js,-Wl,-sectc
 
 all: build/diapatch build/DiaPatches.dylib build/patches.json
 
-build/diapatch: $(wildcard src/diapatch/*.[hm]) | build
-	clang $(CFLAGS) -framework Foundation -framework CoreGraphics -o $@ $(filter %.m,$^)
+# The public keys DiaTweaks releases must be signed with, in ssh-keygen's allowed_signers format.
+RELEASE_SIGNERS ?= release-signers
+CDHASH = $$(codesign -dvvv $(1) 2>&1 | sed -n 's/^CDHash=//p')
 
-build/DiaPatches.dylib: $(DYLIB_SOURCES) $(wildcard $(PASSKEYS)/*) | build
-	clang $(CFLAGS) -Isrc/dylib -dynamiclib $(EXTENSION) -framework AppKit -framework QuartzCore -framework AVFoundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo -o $@ $(filter %.m,$^)
+build/diapatch: $(wildcard src/diapatch/*.[hm]) $(RELEASE_SIGNERS) | build
+	clang $(CFLAGS) -framework Foundation -framework CoreGraphics -framework Security -Wl,-sectcreate,__TEXT,__signers,$(RELEASE_SIGNERS) -o $@ $(filter %.m,$^)
+
+# The dylib only runs the diapatch it was built with.
+build/DiaPatches.dylib: $(DYLIB_SOURCES) $(wildcard $(PASSKEYS)/*) build/diapatch | build
+	clang $(CFLAGS) -Isrc/dylib -dynamiclib $(EXTENSION) -DDP_DIAPATCH_CDHASH="\"$(call CDHASH,build/diapatch)\"" -framework Security -framework AppKit -framework QuartzCore -framework AVFoundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo -o $@ $(filter %.m,$^)
 
 # The patch list for diatweaks. With DIAPATCH_MANIFEST set, the dylib writes it and exits as it loads, so diapatch never runs.
 build/patches.json: build/DiaPatches.dylib build/diapatch

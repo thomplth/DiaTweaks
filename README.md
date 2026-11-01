@@ -19,7 +19,7 @@ Turn tweaks on and off in **Dia → Settings → Patches**, or with the `diatwea
 3. Paste this into Terminal:
 
    ```sh
-   git clone https://github.com/JaceThings/DiaTweaks.git ~/DiaTweaks && ~/DiaTweaks/install.sh
+   git clone https://github.com/thomplth/DiaTweaks.git ~/DiaTweaks && ~/DiaTweaks/install.sh
    ```
 
 Dia quits and reopens. If macOS asks about "Dia Safe Storage", enter your password and click **Always Allow**.
@@ -42,10 +42,14 @@ Tweak names work as keys or titles, like `hideToolbar` or `"Hide toolbar"`. Add 
 
 ## Updating
 
-Dia's own updater is switched off. **Settings → Patches → Software Update** checks for a new Dia and a new DiaTweaks release, downloads either one, and relaunches Dia to install it, like macOS's Software Update. Under **Automatic Updates**, pick for each of Dia and DiaTweaks: off, just show updates, download them, or download and install them when you quit (the default).
+Dia's own updater is switched off, so DiaTweaks stands in for it. A background job checks for a new Dia and a new DiaTweaks release every hour, whether or not Dia is open, verifies them and patches Dia ahead of time. When Dia isn't running it installs straight away; when Dia is open, the update goes in when you quit, and Dia reminds you to relaunch until you do, because browser updates usually fix security problems.
+
+**Settings → Patches → Software Update** checks right now. Under **Automatic Updates**, pick for each of Dia and DiaTweaks: off, just show updates, download them, or download and install them when you quit (the default, and the one to keep for Dia).
 
 - **Dia now:** `diatweaks update-dia`
 - **DiaTweaks now:** `diatweaks update`
+
+Dia downloads must carry The Browser Company's Apple-notarized signature. DiaTweaks downloads must be signed with a key in [`release-signers`](release-signers) and be newer than what you have.
 
 <details>
 <summary>Installed before <code>diatweaks</code> existed?</summary>
@@ -53,7 +57,7 @@ Dia's own updater is switched off. **Settings → Patches → Software Update** 
 Update once by hand, then use `diatweaks update` from then on:
 
 ```sh
-rm -rf /tmp/DiaTweaks && git clone --depth 1 https://github.com/JaceThings/DiaTweaks.git /tmp/DiaTweaks && /tmp/DiaTweaks/install.sh
+rm -rf /tmp/DiaTweaks && git clone --depth 1 https://github.com/thomplth/DiaTweaks.git /tmp/DiaTweaks && /tmp/DiaTweaks/install.sh
 ```
 
 </details>
@@ -63,7 +67,14 @@ rm -rf /tmp/DiaTweaks && git clone --depth 1 https://github.com/JaceThings/DiaTw
 <details>
 <summary><strong>Is it safe?</strong></summary>
 
-Yes. It's built on your Mac from this code. It only changes how Dia looks, and never reads your pages, history or passwords.
+It keeps Dia close to how safe it is unpatched:
+
+- The patched Dia keeps Apple's hardened runtime, so other apps can't inject code into it through environment variables or attach a debugger.
+- macOS refuses to load any library into it except Apple's, The Browser Company's and the exact DiaTweaks build it was patched with. A swapped file is simply never loaded.
+- Dia only runs the `diapatch` that came with its DiaTweaks build.
+- Updates are checked as above, so Dia stays as current as it would on its own.
+
+The tweaks only change how Dia looks. **Allow iCloud passkeys** adds a small extension to every secure page so passkey requests reach Apple Passwords; it only passes them on for the site in the address bar, and it never sees your other pages, history or passwords.
 
 </details>
 
@@ -77,21 +88,23 @@ It keeps an untouched copy of Dia and makes a second copy that loads a small add
 <details>
 <summary><strong>Why does my Mac ask about "Dia Safe Storage"?</strong></summary>
 
-The tweaked Dia is signed by you instead of The Browser Company, so macOS checks once per Dia update. Click **Always Allow**.
+The tweaked Dia is signed by you instead of The Browser Company, so macOS checks once for each new Dia or DiaTweaks version. Click **Always Allow**.
 
 </details>
 
 <details>
 <summary><strong>Does it run in the background?</strong></summary>
 
-No. It only does anything while Dia is open.
+Only to keep Dia updated: a launchd job runs `diapatch scheduled` every 15 minutes, checks for updates at most once an hour, and installs ones it has already downloaded while Dia is closed. Restoring the original Dia removes it.
 
 </details>
 
 <details>
 <summary><strong>Does anything stop working?</strong></summary>
 
-Passkeys. Signing in with a password still works.
+Dia's own passkey support needs an Apple entitlement only The Browser Company's signature can carry, so the patched Dia can't reach Apple Passwords by itself. **Allow iCloud passkeys** (on by default) works around it: for each passkey, the original Dia that DiaTweaks keeps opens behind the Touch ID prompt, then quits. Sign in to Dia in that copy once when it asks.
+
+Passkeys in 1Password, Bitwarden and other managers work through their own extensions and don't need any of this. If 1Password calls Dia an unknown browser, add it under **1Password → Settings → Browser**. Hardware security keys work either way.
 
 </details>
 
@@ -104,7 +117,7 @@ If Dia crashes twice in a row right after opening, it opens next time with the t
 
 ## Uninstall
 
-In Dia, open **Settings → Patches** and click **Restore…**. Dia reopens as the original app with its own updates.
+In Dia, open **Settings → Patches** and click **Restore…**. Dia reopens as the original app with its own updates, and the background job and passkey host are removed.
 
 To also delete DiaTweaks' files and the `diatweaks` command, run `diatweaks restore --purge` instead.
 

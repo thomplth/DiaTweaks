@@ -11,7 +11,12 @@ pid=$(pgrep -f "$dia\$" || true)
 while [ -n "$pid" ] && kill -0 $pid 2>/dev/null; do sleep 0.5; done
 # Dia skips its quit notification on SIGTERM, so safe mode would count this as a crash at launch.
 plutil -replace launching -bool NO "$support/safe-mode.plist" 2>/dev/null || true
+# Dia only loads the dylib it was signed with, and the dylib only runs the diapatch built with it, so both go in and Dia
+# is signed again. macOS asks about "Dia Safe Storage" once for each new build.
+cp -f build/diapatch "$support/bin/diapatch"
 cp -f build/DiaPatches.dylib "$support/DiaPatches.dylib"
+"$support/bin/diapatch" build >/dev/null
+"$support/bin/diapatch" apply >/dev/null
 rm -f "$report"
 DIAPATCH_TEST="$report" nohup "$dia" >/dev/null 2>&1 &
 for _ in $(seq 240); do [ -f "$report" ] && break; sleep 0.5; done

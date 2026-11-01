@@ -4,6 +4,7 @@
 void DPInstallUpdates(void);
 void DPRunCLI(NSArray<NSString *> *args, void (^completion)(NSString *output));
 void DPHandOffAndQuit(NSArray<NSString *> *args);  // Quits Dia while the CLI runs `args`, then relaunches it.
+BOOL DPCLITrusted(void);
 
 extern NSString *const DPDia, *const DPTweaks;
 NSString *DPPartName(NSString *part);

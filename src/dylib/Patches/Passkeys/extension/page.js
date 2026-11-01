@@ -1,5 +1,9 @@
 (() => {
   const credentials = navigator.credentials;
+  // A passkey manager's extension that got here first, like 1Password's, keeps the request. One that comes later wraps
+  // this one and falls back to it, so Apple Passwords stays a choice either way.
+  const native = (f) => typeof f === 'function' && /\{\s*\[native code\]\s*\}\s*$/.test(Function.prototype.toString.call(f));
+  if (!native(credentials?.create) || !native(credentials?.get)) return;
   const create = credentials.create.bind(credentials);
   const get = credentials.get.bind(credentials);
   let nextId = 0;
