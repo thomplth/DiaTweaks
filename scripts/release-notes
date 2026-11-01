@@ -20,10 +20,11 @@ old=$(keys "$previous")
 tweaks='' skip=''
 for key in $(keys "$tag"); do
     printf '%s\n' "$old" | grep -qx "$key" && continue
-    patch=$(git grep -h -A8 "\.key = @\"$key\"" "$tag" -- src/dylib/Patches)
+    patch=$(git grep -h -A12 "\.key = @\"$key\"" "$tag" -- src/dylib/Patches)
     title=$(printf '%s\n' "$patch" | sed -n 's/.*\.title = @"\(.*\)",/\1/p' | head -1)
     detail=$(printf '%s\n' "$patch" | sed -n 's/.*\.detail = @"\(.*\)",/\1/p' | head -1)
-    tweaks="$tweaks- **$title**: $detail [More](https://github.com/$wiki/wiki/$(printf '%s' "$title" | tr ' ' -))
+    page=$(printf '%s\n' "$patch" | sed -n 's/.*\.page = @"\(.*\)",/\1/p' | head -1)
+    tweaks="$tweaks- **$title**: $detail [More](${page:-https://github.com/$wiki/wiki/$(printf '%s' "$title" | tr ' ' -)})
 "
     skip="$skip $(git log --format=%H -G"\.key = @\"$key\"" "$range")"
 done
