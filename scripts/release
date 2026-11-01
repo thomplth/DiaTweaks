@@ -5,6 +5,8 @@ set -eu
 cd "$(dirname "$0")/.."
 tag=${1:?usage: scripts/release <tag>}
 key=${DIATWEAKS_SIGNING_KEY:-$(git config --get user.signingkey)}
+# With an upstream remote, gh would otherwise pick the repository this was forked from.
+export GH_REPO=${GITHUB_REPOSITORY:-thomplth/DiaTweaks}
 [ -n "$key" ] || { echo "Set DIATWEAKS_SIGNING_KEY or git's user.signingkey to the release key." >&2; exit 1; }
 [ -z "$(git status --porcelain)" ] || { echo "Commit or stash your changes first: the release is built from $tag." >&2; exit 1; }
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "$tag^{commit}")" ] || { echo "Check out $tag first." >&2; exit 1; }
