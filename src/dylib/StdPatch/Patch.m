@@ -108,14 +108,16 @@ BOOL DPWriteManifest(NSString *path) {
     NSMutableArray<NSDictionary *> *patches = [NSMutableArray new];
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i], *required = DPRequired(patch), *disabler = DPPatchNamed(patch->disabledBy);
-        [patches addObject:@{
+        NSMutableDictionary *entry = [@{
             @"key": patch->key,
             @"title": patch->title,
             @"detail": patch->detail,
             @"defaultOn": @(patch->defaultOn),
             @"requires": required ? required->key : NSNull.null,
             @"disabledBy": disabler ? disabler->key : NSNull.null,
-        }];
+        } mutableCopy];
+        if (patch->page) entry[@"page"] = patch->page;
+        [patches addObject:entry];
     }
     NSData *json = [NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"patches": patches}
                                                    options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:nil];

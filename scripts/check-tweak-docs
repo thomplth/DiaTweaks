@@ -13,6 +13,12 @@ failed=0
 i=0
 while [ "$i" -lt "$count" ]; do
     title=$(plutil -extract "patches.$i.title" raw -o - "$manifest")
+    # A tweak only this fork has is documented in docs/tweaks, at the page its patch links to.
+    if fork_page=$(plutil -extract "patches.$i.page" raw -o - "$manifest" 2>/dev/null); then
+        [ -f "docs/tweaks/${fork_page##*/}" ] || { echo "$title links to ${fork_page##*/}, which isn't in docs/tweaks" >&2; failed=1; }
+        i=$((i + 1))
+        continue
+    fi
     # GitHub names a wiki page's file after its title, with spaces as hyphens.
     page=$(echo "$title" | tr ' ' '-')
     if [ ! -f "$wiki/$page.md" ]; then

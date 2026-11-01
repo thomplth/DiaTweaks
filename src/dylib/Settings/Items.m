@@ -21,6 +21,7 @@ NSString *DPWhyHidden(DPPatch *patch) {
 }
 
 NSURL *DPWikiURL(DPItem item) {
+    if (item.patch && item.patch->page) return [NSURL URLWithString:item.patch->page];
     NSString *page = [item.title stringByReplacingOccurrencesOfString:@" " withString:@"-"];
     return [NSURL URLWithString:[@"https://github.com/JaceThings/DiaTweaks/wiki/" stringByAppendingString:page]];
 }
