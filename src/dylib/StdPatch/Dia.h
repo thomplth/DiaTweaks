@@ -17,3 +17,4 @@
 #define DPDiaSettingsController "_TtC11Preferences38SidebarPreferencesWindowViewController"
 #define DPDiaSettingsSidebar    "_TtC11Preferences15SidebarListView"
 #define DPDiaSettingsSidebarCell "_TtC11PreferencesP33_4E27E2219272DF78406B73092738280415SidebarCellView"
+#define DPDiaDownloadsMenu      "_TtC15DownloadsButton27DownloadsMenuViewController"

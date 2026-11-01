@@ -646,8 +646,11 @@ static NSString *agentPlist(NSString *label) {
 
 static NSString *agentDomain(void) { return [NSString stringWithFormat:@"gui/%d", getuid()]; }
 
+// bootout returns before a busy job has exited, and bootstrapping it again before then fails with an I/O error.
 static void removeAgent(NSString *label) {
-    run(@[ @"/bin/launchctl", @"bootout", [NSString stringWithFormat:@"%@/%@", agentDomain(), label] ], NULL);
+    NSString *service = [NSString stringWithFormat:@"%@/%@", agentDomain(), label];
+    run(@[ @"/bin/launchctl", @"bootout", service ], NULL);
+    for (int i = 0; i < 100 && run(@[ @"/bin/launchctl", @"print", service ], NULL) == 0; i++) usleep(100000);
     removeTree(agentPlist(label));
 }
 
