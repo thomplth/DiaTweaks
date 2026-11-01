@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 #import <spawn.h>
 #import <sys/file.h>
+#import <sys/stat.h>
 #import <sys/wait.h>
 #import "Passkeys.h"
 
@@ -59,11 +60,11 @@ static void writeMessage(NSDictionary *message) {
 
 static NSDictionary *failure(NSString *message) { return @{ @"error" : @{ @"name" : @"NotAllowedError", @"message" : message } }; }
 
-static NSArray<NSString *> *const kAccountStore = @[ @"global_key_value_store.db", @"global_key_value_store.db-wal", @"global_key_value_store.db-shm" ];
+static NSArray<NSString *> *accountStore(void) { return @[ @"global_key_value_store.db", @"global_key_value_store.db-wal", @"global_key_value_store.db-shm" ]; }
 
 static NSArray *modificationDates(NSString *folder) {
     NSMutableArray *dates = [NSMutableArray array];
-    for (NSString *name in kAccountStore)
+    for (NSString *name in accountStore())
         [dates addObject:[NSFileManager.defaultManager attributesOfItemAtPath:[folder stringByAppendingPathComponent:name] error:nil].fileModificationDate ?: NSNull.null];
     return dates;
 }
@@ -75,7 +76,7 @@ static void signInAsDia(NSString *userData) {
     [files createDirectoryAtPath:userData withIntermediateDirectories:YES attributes:nil error:nil];
     for (int tries = 0; tries < 5; tries++) {
         NSArray *before = modificationDates(dia);
-        for (NSString *name in kAccountStore) {
+        for (NSString *name in accountStore()) {
             [files removeItemAtPath:[userData stringByAppendingPathComponent:name] error:nil];
             [files copyItemAtPath:[dia stringByAppendingPathComponent:name] toPath:[userData stringByAppendingPathComponent:name] error:nil];
         }
@@ -103,6 +104,9 @@ static NSDictionary *sheetBounds(void) {
 
 static pid_t launchHelper(NSString *home, int toHelper[2], int fromHelper[2]) {
     NSString *data = [home stringByAppendingPathComponent:@"passkey-helper"];
+    // It holds a copy of Dia's signed-in account.
+    [NSFileManager.defaultManager createDirectoryAtPath:data withIntermediateDirectories:YES attributes:@{ NSFilePosixPermissions : @0700 } error:nil];
+    chmod(data.fileSystemRepresentation, 0700);
     NSString *userData = [data stringByAppendingPathComponent:@"ud/User Data"];
     signInAsDia(userData);
     skipIntro(data);
@@ -232,9 +236,23 @@ static NSDictionary *runInHelper(pid_t pid, NSString *kind, NSString *origin, id
     return result ?: failure(@"The passkey copy of Dia quit before answering.");
 }
 
+// Chromium only lets the extension start this host, but the origin is navigated to and the kind picks the script,
+// so neither is taken on trust.
+static NSString *canonicalOrigin(id origin) {
+    if (![origin isKindOfClass:NSString.class]) return nil;
+    NSURLComponents *url = [NSURLComponents componentsWithString:origin];
+    if (![url.scheme isEqualToString:@"https"] || !url.host.length || url.user || url.password || url.path.length || url.query || url.fragment)
+        return nil;
+    NSString *canonical = [NSString stringWithFormat:@"https://%@%@", url.host, url.port ? [@":" stringByAppendingString:url.port.stringValue] : @""];
+    return [canonical isEqualToString:origin] ? canonical : nil;
+}
+
 int DPRunPasskeyHost(NSString *home) {
     NSDictionary *request = readMessage();
-    if (!request) return 1;
+    if (![request isKindOfClass:NSDictionary.class]) return 1;
+    NSString *origin = canonicalOrigin(request[@"origin"]);
+    if (!origin || ![@[ @"create", @"get" ] containsObject:request[@"kind"]] || ![request[@"options"] isKindOfClass:NSDictionary.class])
+        return writeMessage(failure(@"DiaTweaks refused a malformed passkey request.")), 1;
     // A second copy started on the same data hands off to the first and quits.
     flock(open([home stringByAppendingPathComponent:@"passkey-helper.lock"].fileSystemRepresentation, O_CREAT | O_RDWR, 0600), LOCK_EX);
 
@@ -247,7 +265,7 @@ int DPRunPasskeyHost(NSString *home) {
 
     gFromHelper = fdopen(fromHelper[0], "r");
     gToHelper = fdopen(toHelper[1], "w");
-    NSDictionary *result = runInHelper(pid, request[@"kind"], request[@"origin"], request[@"options"]);
+    NSDictionary *result = runInHelper(pid, request[@"kind"], origin, request[@"options"]);
     // Dia kills this process once it has the answer, so the copy has to quit before then.
     send(@"Browser.close", nil, nil);
     for (int i = 0; i < 50 && waitpid(pid, NULL, WNOHANG) == 0; i++) usleep(100000);

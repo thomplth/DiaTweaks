@@ -3,8 +3,11 @@
 
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
+#import <Security/Security.h>
 #import "Passkeys.h"
 #include <libproc.h>
+#include <mach-o/getsect.h>
+#include <mach-o/ldsyms.h>
 #include <mach-o/loader.h>
 #include <sys/clonefile.h>
 #include <sys/file.h>
@@ -14,8 +17,13 @@
 static NSString *const kFeed = @"https://releases.diabrowser.com/BoostBrowser-updates.xml";
 static NSString *const kSparkle = @"http://www.andymatuschak.org/xml-namespaces/sparkle";
 static NSString *const kLocalIdentity = @"DiaPatches Local Signing";
-static NSString *const kReleases = @"https://api.github.com/repos/JaceThings/DiaTweaks/releases/latest";
+static NSString *const kTeam = @"S6N382Y83G";
+static NSString *const kReleases = @"https://api.github.com/repos/thomplth/DiaTweaks/releases/latest";
 static NSString *const kReleaseAsset = @"DiaTweaks.zip";
+static NSString *const kReleaseSignature = @"DiaTweaks.zip.sig";
+static NSString *const kReleaseSigner = @"diatweaks-release";
+static NSString *const kAgent = @"com.diapatches.update";
+static NSString *const kPrefsDomain = @"com.diapatches";
 static NSString *const kDiaReleaseNotes = @"https://www.diabrowser.com/release-notes/latest";
 
 static NSString *gHome, *gApp, *gCache, *gPristine, *gStaged, *gReady;
@@ -77,10 +85,14 @@ static BOOL discard(NSString *path) {
     return errno == EXDEV ? removeTree(path) : fail(@"cannot remove %@: %s", path, strerror(errno));
 }
 
-static int run(NSArray<NSString *> *argv, NSString **output) {
+static int runWithInput(NSArray<NSString *> *argv, NSString *input, NSString **output) {
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:argv[0]];
     task.arguments = [argv subarrayWithRange:NSMakeRange(1, argv.count - 1)];
+    if (input) {
+        task.standardInput = [NSFileHandle fileHandleForReadingAtPath:input];
+        if (!task.standardInput) return -1;
+    }
     NSPipe *pipe = NSPipe.pipe;
     task.standardOutput = task.standardError = pipe;
     if (![task launchAndReturnError:NULL]) return -1;
@@ -89,6 +101,8 @@ static int run(NSArray<NSString *> *argv, NSString **output) {
     if (output) *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     return task.terminationStatus;
 }
+
+static int run(NSArray<NSString *> *argv, NSString **output) { return runWithInput(argv, nil, output); }
 
 static BOOL check(NSArray<NSString *> *argv) {
     NSString *output;
@@ -152,14 +166,14 @@ static BOOL isPatched(NSString *app) { return [infoOf(app)[@"DiaPatches"] boolVa
 // What the signature claims, without verifying it; verifyOfficial does that.
 static BOOL claimsOfficial(NSString *app) {
     NSString *details;
-    return run(@[ @"/usr/bin/codesign", @"-dv", app ], &details) == 0 && [details containsString:@"\nTeamIdentifier=S6N382Y83G\n"];
+    return run(@[ @"/usr/bin/codesign", @"-dv", app ], &details) == 0 && [details containsString:[NSString stringWithFormat:@"\nTeamIdentifier=%@\n", kTeam]];
 }
 
 static BOOL verifyOfficial(NSString *app) {
     note(@"verifying %@", app);
     return ([infoOf(app)[@"CFBundleIdentifier"] isEqual:@"company.thebrowser.dia"] || fail(@"%@ is not Dia", app))
         && check(@[ @"/usr/bin/codesign", @"--verify", @"--deep", @"--strict", @"-R",
-                    @"=anchor apple generic and certificate leaf[subject.OU] = \"S6N382Y83G\"", app ])
+                    [NSString stringWithFormat:@"=anchor apple generic and certificate leaf[subject.OU] = \"%@\"", kTeam], app ])
         && check(@[ @"/usr/sbin/spctl", @"--assess", @"--type", @"execute", app ]);
 }
 
@@ -245,29 +259,80 @@ static NSString *localIdentity(NSString *keychain) {
 // A stable self-signed identity keeps Dia's keychain items readable across builds.
 static NSString *createLocalIdentity(NSString *keychain) {
     note(@"creating the signing identity \"%@\" in %@", kLocalIdentity, keychain);
-    NSString *dir = [NSTemporaryDirectory() stringByAppendingPathComponent:@"diapatch-identity"];
+    char dirTemplate[PATH_MAX];
+    snprintf(dirTemplate, sizeof dirTemplate, "%sdiapatch-identity.XXXXXX", NSTemporaryDirectory().fileSystemRepresentation);
+    if (!mkdtemp(dirTemplate)) return fail(@"cannot create a folder for the signing identity: %s", strerror(errno)), nil;
+    NSString *dir = @(dirTemplate);
     NSString *config = [dir stringByAppendingPathComponent:@"req.cnf"], *key = [dir stringByAppendingPathComponent:@"key.pem"],
              *cert = [dir stringByAppendingPathComponent:@"cert.pem"], *p12 = [dir stringByAppendingPathComponent:@"id.p12"];
     NSString *request = @"[req]\ndistinguished_name = dn\nprompt = no\nx509_extensions = ext\n[dn]\nCN = DiaPatches Local Signing\n"
                         @"[ext]\nbasicConstraints = critical,CA:FALSE\nkeyUsage = critical,digitalSignature\n"
                         @"extendedKeyUsage = critical,codeSigning\nsubjectKeyIdentifier = hash\n";
-    // The p12 only carries the key, which sits unencrypted beside it, into the keychain.
-    BOOL ok = removeTree(dir) && makeDir(dir) && [request writeToFile:config atomically:NO encoding:NSUTF8StringEncoding error:NULL]
+    NSString *password = [NSString stringWithFormat:@"pass:%@", NSUUID.UUID.UUIDString];
+    // The key is unencrypted only inside the mkdtemp folder, which no other user can open, until the keychain holds it.
+    BOOL ok = [request writeToFile:config atomically:NO encoding:NSUTF8StringEncoding error:NULL]
         && check(@[ @"/usr/bin/openssl", @"req", @"-x509", @"-new", @"-newkey", @"rsa:2048", @"-nodes", @"-sha256", @"-days", @"7300",
                     @"-config", config, @"-keyout", key, @"-out", cert ])
         && check(@[ @"/usr/bin/openssl", @"pkcs12", @"-export", @"-inkey", key, @"-in", cert, @"-name", kLocalIdentity,
-                    @"-passout", @"pass:diapatch", @"-out", p12 ])
-        && check(@[ @"/usr/bin/security", @"import", p12, @"-k", keychain, @"-f", @"pkcs12", @"-P", @"diapatch", @"-T",
+                    @"-passout", password, @"-out", p12 ])
+        && check(@[ @"/usr/bin/security", @"import", p12, @"-k", keychain, @"-f", @"pkcs12", @"-P", [password substringFromIndex:5], @"-T",
                     @"/usr/bin/codesign" ]);
     removeTree(dir);
     return ok ? localIdentity(keychain) : nil;
 }
 
-static BOOL sign(NSString *app) {
+static NSData *cdhashOf(NSString *path) {
+    SecStaticCodeRef code = NULL;
+    CFDictionaryRef info = NULL;
+    NSData *cdhash = nil;
+    if (SecStaticCodeCreateWithPath((__bridge CFURLRef)[NSURL fileURLWithPath:path], kSecCSDefaultFlags, &code) == errSecSuccess
+        && SecStaticCodeCheckValidity(code, kSecCSStrictValidate, NULL) == errSecSuccess
+        && SecCodeCopySigningInformation(code, kSecCSDefaultFlags, &info) == errSecSuccess)
+        cdhash = ((__bridge NSDictionary *)info)[(__bridge NSString *)kSecCodeInfoUnique];
+    if (info) CFRelease(info);
+    if (code) CFRelease(code);
+    return cdhash;
+}
+
+static NSDictionary *entitlementsOf(NSString *app) {
+    SecStaticCodeRef code = NULL;
+    CFDictionaryRef info = NULL;
+    NSDictionary *entitlements = nil;
+    if (SecStaticCodeCreateWithPath((__bridge CFURLRef)[NSURL fileURLWithPath:app], kSecCSDefaultFlags, &code) == errSecSuccess
+        && SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info) == errSecSuccess)
+        entitlements = ((__bridge NSDictionary *)info)[(__bridge NSString *)kSecCodeInfoEntitlementsDict];
+    if (info) CFRelease(info);
+    if (code) CFRelease(code);
+    return entitlements;
+}
+
+// Entitlements outside com.apple.security.* need The Browser Company's provisioning profile, and AMFI kills an app that
+// claims them without one. The patched Dia keeps hardened runtime, so it only gives up library validation, which it needs
+// to load The Browser Company's frameworks; the library constraint narrows what it can load back down.
+static NSDictionary *patchedEntitlements(NSString *official) {
+    NSSet *weakening = [NSSet setWithArray:@[
+        @"com.apple.security.application-groups", @"com.apple.security.get-task-allow", @"com.apple.security.cs.debugger",
+        @"com.apple.security.cs.allow-dyld-environment-variables",
+    ]];
+    NSMutableDictionary *granted = [NSMutableDictionary dictionary];
+    [entitlementsOf(official) enumerateKeysAndObjectsUsingBlock:^(NSString *key, id value, BOOL *stop) {
+        if ([key hasPrefix:@"com.apple.security."] && ![weakening containsObject:key]) granted[key] = value;
+    }];
+    granted[@"com.apple.security.cs.disable-library-validation"] = @YES;
+    return granted;
+}
+
+// Without library validation any signed library could load into Dia. This lets in only macOS, The Browser Company's
+// own frameworks and this exact build of the dylib, so swapping the dylib or a framework needs a new signature.
+static NSDictionary *libraryConstraint(NSData *dylib) {
+    return @{ @"$or" : @{ @"validation-category" : @1, @"team-identifier" : kTeam, @"cdhash" : dylib } };
+}
+
+static BOOL sign(NSString *app, NSString *official, NSData *dylib) {
     NSString *identity = env("DIAPATCH_IDENTITY")
         ?: [[NSString stringWithContentsOfFile:inHome(@"identity") encoding:NSUTF8StringEncoding error:NULL]
                stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSArray *codesign = @[ @"/usr/bin/codesign", @"--force", @"--timestamp=none", @"--sign" ];
+    NSArray *codesign = @[ @"/usr/bin/codesign", @"--force", @"--timestamp=none", @"--options", @"runtime", @"--sign" ];
     if (identity.length) {
         codesign = [codesign arrayByAddingObject:identity];
     } else {
@@ -277,16 +342,17 @@ static BOOL sign(NSString *app) {
         else codesign = [codesign arrayByAddingObject:@"-"];
         if (!identity) say(@"warning: signing ad hoc, so Dia will ask for keychain access again after every update");
     }
-    NSURL *entitlements = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"diapatch.entitlements"]];
-    NSDictionary *granted = @{
-        @"com.apple.security.device.audio-input" : @YES,
-        @"com.apple.security.device.camera" : @YES,
-        @"com.apple.security.personal-information.location" : @YES,
-    };
-    BOOL ok = ([granted writeToURL:entitlements error:NULL] || fail(@"cannot write %@", entitlements.path))
-        && check([codesign arrayByAddingObjectsFromArray:@[ @"--entitlements", entitlements.path, app ]]);
-    [NSFileManager.defaultManager removeItemAtURL:entitlements error:NULL];
-    if (ok) note(@"signed %@ with %@", app, codesign[4]);
+    char dirTemplate[PATH_MAX];
+    snprintf(dirTemplate, sizeof dirTemplate, "%sdiapatch-sign.XXXXXX", NSTemporaryDirectory().fileSystemRepresentation);
+    if (!mkdtemp(dirTemplate)) return fail(@"cannot create a folder for signing: %s", strerror(errno));
+    NSString *dir = @(dirTemplate);
+    NSURL *entitlements = [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"entitlements.plist"]];
+    NSURL *constraint = [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"library-constraint.plist"]];
+    BOOL ok = ([patchedEntitlements(official) writeToURL:entitlements error:NULL] || fail(@"cannot write %@", entitlements.path))
+        && ([libraryConstraint(dylib) writeToURL:constraint error:NULL] || fail(@"cannot write %@", constraint.path))
+        && check([codesign arrayByAddingObjectsFromArray:@[ @"--entitlements", entitlements.path, @"--library-constraint", constraint.path, app ]]);
+    removeTree(dir);
+    if (ok) note(@"signed %@ with %@", app, codesign[6]);
     return ok;
 }
 
@@ -307,12 +373,14 @@ static BOOL build(NSString *source) {
     NSString *executable = infoOf(source)[@"CFBundleExecutable"], *dylib = inHome(@DYLIB);
     if (!executable) return fail(@"no official Dia at %@; reinstall Dia from https://www.diabrowser.com", source);
     if (!exists(dylib)) return fail(@"%@ is missing; reinstall DiaPatches", dylib);
+    NSData *dylibHash = cdhashOf(dylib);
+    if (!dylibHash) return fail(@"%@ isn't validly signed; reinstall DiaPatches", dylib);
     note(@"building patched Dia %@", versionOf(source));
     NSString *work = [gStaged stringByAppendingString:@".building"], *contents = [work stringByAppendingPathComponent:@"Contents"];
     BOOL ok = removeTree(work) && makeDir(gStaged.stringByDeletingLastPathComponent) && clone(source, work)
         && addLoadCommand([contents stringByAppendingPathComponent:[@"MacOS" stringByAppendingPathComponent:executable]], dylib)
         && configureInfo(work) && removeTree([contents stringByAppendingPathComponent:@"embedded.provisionprofile"])
-        && sign(work) && moveBundle(work, gStaged)
+        && sign(work, source, dylibHash) && moveBundle(work, gStaged)
         && ([stagedID() writeToFile:gReady atomically:YES encoding:NSUTF8StringEncoding error:NULL] || fail(@"cannot write %@", gReady));
     if (!ok) removeTree(work);
     return ok;
@@ -418,21 +486,42 @@ static NSDictionary *latestTweaks(int seconds, NSString **problem) {
         return nil;
     }
     NSDictionary *release = [NSJSONSerialization JSONObjectWithData:[output dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
-    NSDictionary *asset;
-    for (NSDictionary *candidate in [release isKindOfClass:NSDictionary.class] ? release[@"assets"] : nil)
+    NSDictionary *asset, *signature;
+    for (NSDictionary *candidate in [release isKindOfClass:NSDictionary.class] ? release[@"assets"] : nil) {
         if ([candidate[@"name"] isEqual:kReleaseAsset]) asset = candidate;
+        if ([candidate[@"name"] isEqual:kReleaseSignature]) signature = candidate;
+    }
     NSString *digest = asset[@"digest"];
-    if (![digest isKindOfClass:NSString.class] || ![digest hasPrefix:@"sha256:"] || ![release[@"tag_name"] isKindOfClass:NSString.class]) {
-        *problem = [NSString stringWithFormat:@"no %@ in the latest DiaTweaks release", kReleaseAsset];
+    if (![digest isKindOfClass:NSString.class] || ![digest hasPrefix:@"sha256:"] || ![release[@"tag_name"] isKindOfClass:NSString.class]
+        || ![signature[@"browser_download_url"] isKindOfClass:NSString.class]) {
+        *problem = [NSString stringWithFormat:@"no signed %@ in the latest DiaTweaks release", kReleaseAsset];
         return nil;
     }
     return @{ @"tag" : release[@"tag_name"], @"digest" : digest, @"size" : asset[@"size"] ?: @0,
-              @"releaseNotes" : release[@"html_url"] ?: @"", @"url" : asset[@"browser_download_url"] };
+              @"releaseNotes" : release[@"html_url"] ?: @"", @"url" : asset[@"browser_download_url"],
+              @"signatureURL" : signature[@"browser_download_url"] };
 }
 
 static BOOL tweaksAvailable(NSDictionary *latest) {
     return latest && ![installedRelease()[@"digest"] isEqual:latest[@"digest"]] && ![stagedRelease()[@"digest"] isEqual:latest[@"digest"]];
 }
+
+// GitHub's digest only shows the download arrived intact. The signature shows a release key made it, so taking over the
+// repository or its CI isn't enough to put code into Dia.
+static BOOL verifyReleaseSignature(NSString *zip, NSString *signature, NSString *work) {
+    unsigned long size = 0;
+    const uint8_t *bytes = getsectiondata(&_mh_execute_header, "__TEXT", "__signers", &size);
+    NSString *signers = [work stringByAppendingPathComponent:@"allowed_signers"], *output;
+    if (!bytes || !size || ![[NSData dataWithBytes:bytes length:size] writeToFile:signers atomically:YES])
+        return fail(@"this diapatch has no release keys to check DiaTweaks downloads with");
+    int status = runWithInput(@[ @"/usr/bin/ssh-keygen", @"-Y", @"verify", @"-f", signers, @"-I", kReleaseSigner, @"-n", kReleaseSigner,
+                                 @"-s", signature ], zip, &output);
+    return status == 0
+        || fail(@"the DiaTweaks download isn't signed with a release key: %@",
+                [output stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]);
+}
+
+static NSString *versionNumber(NSString *tag) { return [tag hasPrefix:@"v"] ? [tag substringFromIndex:1] : tag; }
 
 static BOOL stageTweaks(void) {
     NSString *problem, *output;
@@ -441,18 +530,28 @@ static BOOL stageTweaks(void) {
     if ([stagedRelease()[@"digest"] isEqual:latest[@"digest"]]) return say(@"DiaTweaks %@ is ready to install", latest[@"tag"]);
     if (!tweaksAvailable(latest)) return say(@"DiaTweaks %@ is up to date", latest[@"tag"]);
 
+    NSString *installed = installedRelease()[@"tag"];
+    if (installed && !newer(versionNumber(latest[@"tag"]), versionNumber(installed)))
+        return fail(@"the latest DiaTweaks release, %@, isn't newer than the installed %@", latest[@"tag"], installed);
+
     NSString *work = [gCache stringByAppendingPathComponent:@"release"], *zip = [work stringByAppendingPathComponent:kReleaseAsset];
+    NSString *signature = [work stringByAppendingPathComponent:kReleaseSignature];
     NSString *building = [gStagedTweaks stringByAppendingString:@".building"];
     if (!removeTree(work) || !makeDir(work)) return NO;
     note(@"downloading DiaTweaks %@ from %@", latest[@"tag"], latest[@"url"]);
-    if (fetch(latest[@"url"], 600, zip, &output) != 0) {
+    if (fetch(latest[@"url"], 600, zip, &output) != 0 || fetch(latest[@"signatureURL"], 60, signature, &output) != 0) {
         removeTree(work);
         return fail(@"cannot download DiaTweaks %@: %@", latest[@"tag"], output);
     }
     BOOL ok = ([sha256(zip) isEqual:latest[@"digest"]] || fail(@"the DiaTweaks %@ download doesn't match its digest", latest[@"tag"]))
+        && verifyReleaseSignature(zip, signature, work)
         && removeTree(building) && makeDir(building) && check(@[ @"/usr/bin/ditto", @"-x", @"-k", zip, building ]);
-    for (NSString *name in tweaksTargets())
+    for (NSString *name in [tweaksTargets().allKeys arrayByAddingObject:@"VERSION"])
         ok = ok && (exists([building stringByAppendingPathComponent:name]) || fail(@"DiaTweaks %@ has no %@", latest[@"tag"], name));
+    // The tag on GitHub can be moved; the one inside the signed zip can't, so an old release can't come back as the latest.
+    NSString *signedTag = [[NSString stringWithContentsOfFile:[building stringByAppendingPathComponent:@"VERSION"] encoding:NSUTF8StringEncoding error:NULL]
+        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    ok = ok && ([signedTag isEqualToString:latest[@"tag"]] || fail(@"DiaTweaks %@ was signed as %@", latest[@"tag"], signedTag));
     ok = ok && [@{ @"digest" : latest[@"digest"], @"tag" : latest[@"tag"] } writeToFile:[building stringByAppendingPathComponent:@"release.plist"] atomically:YES]
         && removeTree(gStagedTweaks) && moveBundle(building, gStagedTweaks);
     removeTree(work);
@@ -479,9 +578,13 @@ static BOOL apply(void) {
     return moveBundle(gStaged, gApp) && removeTree(gReady) && say(@"installed patched Dia %@ at %@", versionOf(gApp), gApp);
 }
 
+// The patched Dia only loads the dylib it was signed with, so a new dylib means signing Dia again.
 static BOOL applyChosen(BOOL dia, BOOL tweaks) {
     if (!dia && !tweaks) dia = tweaks = YES;
-    return (!tweaks || applyTweaks()) && (!dia || apply());
+    BOOL newDylib = tweaks && stagedRelease()[@"tag"];
+    if (tweaks && !applyTweaks()) return NO;
+    if (newDylib) return build(gPristine) && apply();
+    return !dia || apply();
 }
 
 static BOOL install(BOOL relaunch) {
@@ -529,6 +632,68 @@ static BOOL update(void) {
     return ok && say(@"Dia %@ is staged; relaunch Dia or run `diapatch apply` to install it", release.version);
 }
 
+#pragma mark - Background updates
+
+static NSString *agentPlist(void) {
+    return [NSHomeDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"Library/LaunchAgents/%@.plist", kAgent]];
+}
+
+static NSString *agentDomain(void) { return [NSString stringWithFormat:@"gui/%d", getuid()]; }
+
+static void removeAgent(void) {
+    run(@[ @"/bin/launchctl", @"bootout", [NSString stringWithFormat:@"%@/%@", agentDomain(), kAgent] ], NULL);
+    removeTree(agentPlist());
+}
+
+// Dia's own updater is switched off, so this stands in for it: it checks whether or not Dia is open, and doesn't need
+// the dylib, which safe mode or a mismatched Dia may keep from loading.
+static BOOL installAgent(void) {
+    if (env("DIAPATCH_NO_AGENT")) return YES;
+    NSMutableDictionary *environment = [NSMutableDictionary dictionary];
+    for (NSString *name in @[ @"DIAPATCH_HOME", @"DIAPATCH_APP", @"DIAPATCH_CACHE", @"DIATWEAKS_DOMAIN" ])
+        environment[name] = env(name.UTF8String);
+    NSDictionary *agent = @{
+        @"Label" : kAgent,
+        @"ProgramArguments" : @[ inHome(@"bin/diapatch"), @"scheduled" ],
+        @"EnvironmentVariables" : environment,
+        @"StartInterval" : @900,
+        @"RunAtLoad" : @YES,
+        @"ProcessType" : @"Background",
+        @"LowPriorityIO" : @YES,
+    };
+    NSError *error;
+    removeAgent();
+    return makeDir(agentPlist().stringByDeletingLastPathComponent)
+        && ([agent writeToURL:[NSURL fileURLWithPath:agentPlist()] error:&error] || fail(@"cannot write %@: %@", agentPlist(), error.localizedDescription))
+        && check(@[ @"/bin/launchctl", @"bootstrap", agentDomain(), agentPlist() ]);
+}
+
+typedef NS_ENUM(NSInteger, AutoLevel) { AutoOff, AutoNotify, AutoDownload, AutoInstall };
+
+static AutoLevel autoLevel(NSString *key) {
+    id level = [[[NSUserDefaults alloc] initWithSuiteName:env("DIATWEAKS_DOMAIN") ?: kPrefsDomain] objectForKey:key];
+    return level ? MIN(MAX([level integerValue], AutoOff), AutoInstall) : AutoInstall;
+}
+
+static const NSTimeInterval kCheckEvery = 3600;
+
+// Runs every 15 minutes: checks the feeds at most hourly, and installs what's staged as soon as Dia isn't open.
+static BOOL scheduled(void) {
+    if (!isPatched(gApp)) return YES;
+    AutoLevel dia = autoLevel(@"autoUpdateDia"), tweaks = autoLevel(@"autoUpdateTweaks");
+    NSString *stamp = inHome(@"last-check"), *channel, *problem;
+    NSDate *checked = [NSFileManager.defaultManager attributesOfItemAtPath:stamp error:NULL].fileModificationDate;
+    if ((dia >= AutoDownload || tweaks >= AutoDownload) && (!checked || -checked.timeIntervalSinceNow >= kCheckEvery)
+        && latest(60, &channel, &problem)) {
+        [NSData.data writeToFile:stamp atomically:YES];
+        if (dia >= AutoDownload) update();
+        if (tweaks >= AutoDownload) stageTweaks();
+    }
+    BOOL installDia = dia == AutoInstall && stagedReady(), installTweaks = tweaks == AutoInstall && stagedRelease()[@"tag"];
+    if (appRunning() || !(installDia || installTweaks)) return YES;
+    return applyChosen(installDia, installTweaks);
+}
+
 // Deletes only what DiaPatches creates, in case DIAPATCH_HOME points somewhere shared.
 static BOOL purge(void) {
     // install.sh links the diatweaks command into the first of these it can write to.
@@ -542,7 +707,8 @@ static BOOL purge(void) {
         say(@"deleted %@", link);
     }
     for (NSString *name in @[ @"bin", @DYLIB, @"patches.json", @"release.plist", @"pristine", @"staged", @"identity", @"diapatch.log", @"safe-mode.plist",
-                              @".diatweaks.lock", @".incoming" ])
+                              @".diatweaks.lock", @".incoming", @"last-check", @"passkey-helper", @"passkey-helper.lock", @"passkeys-extension",
+                              @"passkeys-extension.key" ])
         if (!discard(inHome(name))) return NO;
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:gHome error:NULL])
         if ([name hasPrefix:@".update-"] && !removeTree(inHome(name))) return NO;  // checkouts left by an interrupted diatweaks update
@@ -554,6 +720,9 @@ static BOOL purge(void) {
 
 static BOOL uninstall(BOOL purgeFiles) {
     if (appRunning()) return fail(@"Dia is running; quit it, then run `diapatch uninstall`");
+    removeAgent();
+    // The official Dia has its own passkeys, and nothing else should reach diapatch through this host.
+    removeTree([NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Google/Chrome/NativeMessagingHosts/com.diapatches.passkeys.json"]);
     if (!claimsOfficial(gApp)) {
         NSString *copy = [gPristine stringByAppendingString:@".restore"];
         if (!exists(gPristine)) return fail(@"no official Dia at %@; reinstall Dia from https://www.diabrowser.com", gPristine);
@@ -636,8 +805,10 @@ static const char kUsage[] =
     "  uninstall [--wait PID] [--relaunch] [--purge]\n"
     "                   put the official Dia back; --purge also deletes DiaPatches' files and the diatweaks command\n"
     "  status [--json]  official, installed, staged and offered versions, and the update channel\n"
+    "  scheduled        what the background agent runs: check hourly, stage updates and install them while Dia is closed\n"
     "environment: DIAPATCH_IDENTITY (codesigning identity, remembered by install), DIAPATCH_HOME,\n"
-    "  DIAPATCH_APP, DIAPATCH_CACHE, DIAPATCH_FEED, DIAPATCH_RELEASES, DIATWEAKS_LINK_DIR, DIAPATCH_NO_RELAUNCH (ignore --relaunch)\n";
+    "  DIAPATCH_APP, DIAPATCH_CACHE, DIAPATCH_FEED, DIAPATCH_RELEASES, DIATWEAKS_LINK_DIR, DIAPATCH_NO_RELAUNCH (ignore --relaunch),\n"
+    "  DIAPATCH_NO_AGENT (install leaves the background agent alone)\n";
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
@@ -656,6 +827,7 @@ int main(int argc, const char *argv[]) {
         NSArray<NSString *> *allowed = @{
             @"install" : @[ @"--relaunch" ], @"build" : @[], @"update" : @[], @"self-update" : @[], @"status" : @[ @"--json" ],
             @"apply" : @[ @"--wait", @"--relaunch", @"--dia", @"--tweaks" ], @"check" : @[ @"--json" ], @"uninstall" : @[ @"--wait", @"--relaunch", @"--purge" ],
+            @"scheduled" : @[],
         }[command];
         NSMutableSet<NSString *> *flags = [NSMutableSet set];
         pid_t pid = 0;
@@ -682,14 +854,16 @@ int main(int argc, const char *argv[]) {
         setvbuf(gLog, NULL, _IOLBF, 0);
         if (pid) waitForQuit(pid);
         if (flock(fileno(gLog), LOCK_EX | LOCK_NB) != 0) {  // the log doubles as the lock: one run at a time
+            if ([command isEqualToString:@"scheduled"]) return 0;
             say(@"waiting for another diapatch run to finish");
             flock(fileno(gLog), LOCK_EX);
         }
         removeTree(inHome(@".trash"));  // what a run stopped mid-delete left
-        BOOL ok = [command isEqualToString:@"install"] ? install([flags containsObject:@"--relaunch"])
+        BOOL ok = [command isEqualToString:@"install"] ? install([flags containsObject:@"--relaunch"]) && installAgent()
             : [command isEqualToString:@"build"]       ? build(gPristine) && say(@"staged patched Dia %@", versionOf(gStaged))
             : [command isEqualToString:@"update"]      ? update()
             : [command isEqualToString:@"self-update"] ? stageTweaks()
+            : [command isEqualToString:@"scheduled"]   ? scheduled()
             : [command isEqualToString:@"apply"]       ? applyChosen([flags containsObject:@"--dia"], [flags containsObject:@"--tweaks"])
                                                        : uninstall([flags containsObject:@"--purge"]);
         // open sometimes fails with -600 right after Dia quits itself.

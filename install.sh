@@ -25,7 +25,7 @@ if [ -f cli/Cargo.toml ]; then
     fi
     if ! command -v cargo >/dev/null; then
         echo "Skipping the diatweaks command: it needs Rust (https://rustup.rs)."
-    elif cargo build --release --manifest-path cli/Cargo.toml; then
+    elif cargo build --release --locked --manifest-path cli/Cargo.toml; then
         cli="${CARGO_TARGET_DIR:-cli/target}/release/diatweaks"
     else
         echo "Skipping the diatweaks command: it didn't build."

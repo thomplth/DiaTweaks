@@ -39,20 +39,22 @@ CI fails if a patch has no wiki page or the sidebar doesn't link to it, so a new
 
 `make test` installs your build's dylib and reopens Dia in test mode. Dia tries the patches all off, all on, each on its own and in pairwise combinations without saving any of it, runs every patch's `verify` after each, then goes back to your settings. The script prints what failed and exits non-zero if anything did. It can't move the tabs between the sidebar and the top, so run it once in each layout. Square corners only get tested with the sidebar open.
 
-To try `install.sh`, `diapatch` or `diatweaks` without touching your own Dia, point `DIAPATCH_APP` at a copy of Dia, `DIAPATCH_HOME`, `DIAPATCH_CACHE` and `DIATWEAKS_LINK_DIR` at scratch folders and `DIATWEAKS_DOMAIN` at a settings domain of its own, and set `DIAPATCH_NO_RELAUNCH=1` so nothing quits or opens Dia. `DIAPATCH_RELEASES` points `diapatch self-update` at a release JSON of your own, which can use `file://` links.
+To try `install.sh`, `diapatch` or `diatweaks` without touching your own Dia, point `DIAPATCH_APP` at a copy of Dia, `DIAPATCH_HOME`, `DIAPATCH_CACHE` and `DIATWEAKS_LINK_DIR` at scratch folders and `DIATWEAKS_DOMAIN` at a settings domain of its own, and set `DIAPATCH_NO_RELAUNCH=1` so nothing quits or opens Dia. `DIAPATCH_RELEASES` points `diapatch self-update` at a release JSON of your own, which can use `file://` links; build `diapatch` with `make RELEASE_SIGNERS=<file>` to trust a test key. Set `DIAPATCH_NO_AGENT=1` so `install` doesn't replace your background updater with one for the copy.
 
 ## Releasing
 
+Releases are built and signed on a maintainer's Mac, never by CI: installs only accept a `DiaTweaks.zip` whose `DiaTweaks.zip.sig` verifies against a key in [`release-signers`](release-signers), so taking over the repository or its workflows isn't enough to ship code into Dia. Adding or replacing a key is a change to `release-signers` like any other, and only reaches installs through a release signed with a key they already trust.
+
 1. Tag main and push the tag: `git tag v1.2.0 && git push origin v1.2.0`. Versions are `vMAJOR.MINOR.PATCH`. To open the notes with an announcement, tag with a message instead: `git tag -a v1.2.0 -m "…"`.
-2. The Release workflow builds `DiaTweaks.zip` and opens a draft release with it attached. Its notes are drafted in this order, leaving out empty sections:
+2. Check out the tag and run `scripts/release v1.2.0`. It builds `DiaTweaks.zip` (with the tag inside it, in `VERSION`), signs it with `git config user.signingkey` or `DIATWEAKS_SIGNING_KEY`, checks the signature against `release-signers` and uploads both files to a draft release. Its notes are drafted in this order, leaving out empty sections:
    - 📣 Announcement: the tag's message.
    - ✨ New tweaks: every patch added since the last tag, with its description and wiki page.
    - ⚡️ Improvements: every other `feat`.
    - 🐛 Fixes: every `fix` and `perf`.
    - 🧪 Tested with Dia `VERSION`: replace it with the Dia you tested on.
-3. Reword the notes as you like, then publish. Settings doesn't show them, only a Release Notes link to the release. Installs see it the next time Dia opens or someone checks.
+3. Reword the notes as you like, then publish. Settings doesn't show them, only a Release Notes link to the release. Installs see it within the hour.
 
-Installs compare the zip's digest, not the version. To fix a release without a new version, push the fix to main, move the tag (`git tag -f v1.2.0 && git push -f origin v1.2.0`), then run the Release workflow by hand with that tag. It replaces the zip, and everyone gets it as an update, including people who already installed the broken one. Edit the notes on GitHub at any time. Keep immutable releases off in the repo settings, or GitHub won't let the zip change.
+Installs only move forward: a release whose signed `VERSION` isn't newer than the installed one, or doesn't match its tag, is refused. To fix a broken release, ship the next patch version.
 
 ## Commits
 

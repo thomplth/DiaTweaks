@@ -1,0 +1,24 @@
+#!/bin/sh
+# Builds release $1 here from its tag, signs it with a key in release-signers and uploads it as a draft to publish by hand.
+# DIATWEAKS_SIGNING_KEY picks the key (default: git's user.signingkey); with ssh-agent or 1Password the private half stays there.
+set -eu
+cd "$(dirname "$0")/.."
+tag=${1:?usage: scripts/release <tag>}
+key=${DIATWEAKS_SIGNING_KEY:-$(git config --get user.signingkey)}
+[ -n "$key" ] || { echo "Set DIATWEAKS_SIGNING_KEY or git's user.signingkey to the release key." >&2; exit 1; }
+[ -z "$(git status --porcelain)" ] || { echo "Commit or stash your changes first: the release is built from $tag." >&2; exit 1; }
+[ "$(git rev-parse HEAD)" = "$(git rev-parse "$tag^{commit}")" ] || { echo "Check out $tag first." >&2; exit 1; }
+
+scripts/package "$tag"
+rm -f build/DiaTweaks.zip.sig
+ssh-keygen -Y sign -f "$key" -n diatweaks-release build/DiaTweaks.zip
+ssh-keygen -Y verify -f release-signers -I diatweaks-release -n diatweaks-release -s build/DiaTweaks.zip.sig < build/DiaTweaks.zip
+
+if ! gh release view "$tag" >/dev/null 2>&1; then
+    notes=$(mktemp)
+    trap 'rm -f "$notes"' EXIT
+    scripts/release-notes "$tag" > "$notes"
+    gh release create "$tag" --draft --verify-tag --title "$tag" --notes-file "$notes"
+fi
+gh release upload "$tag" build/DiaTweaks.zip build/DiaTweaks.zip.sig
+echo "Uploaded $tag as a draft. Publish it on GitHub once its notes are ready."

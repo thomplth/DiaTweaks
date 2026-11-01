@@ -1,4 +1,9 @@
 #import "Updates/Updates.h"
+#import <Security/Security.h>
+
+#ifndef DP_DIAPATCH_CDHASH
+#error Build with make, which pins the diapatch this dylib ships with
+#endif
 
 NSString *const DPDia = @"dia", *const DPTweaks = @"tweaks";
 NSNotificationName const DPUpdatesDidChangeNotification = @"DPUpdatesDidChange";
@@ -11,6 +16,20 @@ static NSString *DPSupport(NSString *name) {
 }
 
 static NSString *DPCLI(void) { return DPSupport(@"bin/diapatch"); }
+
+// Dia's signature pins this dylib and this dylib pins diapatch, so a diapatch swapped in by something else never runs as
+// Dia's child with Dia's privacy permissions.
+BOOL DPCLITrusted(void) {
+    SecStaticCodeRef code = NULL;
+    SecRequirementRef requirement = NULL;
+    BOOL trusted = SecStaticCodeCreateWithPath((__bridge CFURLRef)[NSURL fileURLWithPath:DPCLI()], kSecCSDefaultFlags, &code) == errSecSuccess
+        && SecRequirementCreateWithString((__bridge CFStringRef)@"cdhash H\"" DP_DIAPATCH_CDHASH "\"", kSecCSDefaultFlags, &requirement) == errSecSuccess
+        && SecStaticCodeCheckValidity(code, kSecCSStrictValidate, requirement) == errSecSuccess;
+    if (requirement) CFRelease(requirement);
+    if (code) CFRelease(code);
+    if (!trusted) NSLog(@"DiaPatches: %@ isn't the diapatch this build shipped with, so it won't run", DPCLI());
+    return trusted;
+}
 
 static NSUserDefaults *DPUpdateDefaults(void) { return [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"]; }
 
@@ -32,7 +51,7 @@ void DPRunCLI(NSArray<NSString *> *args, void (^completion)(NSString *output)) {
         task.standardOutput = pipe;
         task.standardError = NSFileHandle.fileHandleWithNullDevice;
         NSString *output = nil;
-        if ([task launchAndReturnError:nil]) {
+        if (DPCLITrusted() && [task launchAndReturnError:nil]) {
             NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
             [task waitUntilExit];
             if (task.terminationStatus == 0) output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
@@ -45,7 +64,7 @@ void DPHandOffAndQuit(NSArray<NSString *> *args) {
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:DPCLI()];
     task.arguments = [args arrayByAddingObjectsFromArray:@[@"--wait", @(getpid()).stringValue, @"--relaunch"]];
-    if ([task launchAndReturnError:nil]) [NSApp terminate:nil];
+    if (DPCLITrusted() && [task launchAndReturnError:nil]) [NSApp terminate:nil];
 }
 
 @implementation DPUpdates {
@@ -101,7 +120,7 @@ void DPHandOffAndQuit(NSArray<NSString *> *args) {
         [entry addEntriesFromDictionary:@{
             @"latest" : latest, @"available" : @(!staged), @"staged" : staged ? latest : NSNull.null,
             @"size" : [part isEqual:DPDia] ? @704038560 : @960161,
-            @"releaseNotes" : [part isEqual:DPDia] ? @"https://www.diabrowser.com/release-notes/latest" : @"https://github.com/JaceThings/DiaTweaks/releases",
+            @"releaseNotes" : [part isEqual:DPDia] ? @"https://www.diabrowser.com/release-notes/latest" : @"https://github.com/thomplth/DiaTweaks/releases",
         }];
         found[part] = entry;
     }
@@ -221,12 +240,43 @@ static void DPInstallOnQuit(void) {
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:DPCLI()];
     task.arguments = args;
-    [task launchAndReturnError:nil];
+    if (DPCLITrusted()) [task launchAndReturnError:nil];
+}
+
+static NSString *DPStagedDiaVersion(void) {
+    if (![NSFileManager.defaultManager fileExistsAtPath:DPSupport(@"staged/ready")]) return nil;
+    return [NSDictionary dictionaryWithContentsOfFile:DPSupport(@"staged/Dia.app/Contents/Info.plist")][@"CFBundleShortVersionString"];
+}
+
+static const NSTimeInterval DPRemindEvery = 24 * 3600, DPLookEvery = 30 * 60;
+
+// The background agent downloads Dia's fixes within the hour, but they only take effect once Dia relaunches, which a
+// browser left open can put off for weeks.
+static void DPRemindToRelaunch(void) {
+    static NSString *remindedFor;
+    static NSDate *remindedAt;
+    NSString *version = DPStagedDiaVersion();
+    if (!version || ([version isEqual:remindedFor] && -remindedAt.timeIntervalSinceNow < DPRemindEvery)) return;
+    NSWindow *window = NSApp.keyWindow ?: NSApp.mainWindow;
+    if (window.attachedSheet || NSApp.modalWindow) return;
+    remindedFor = version;
+    remindedAt = NSDate.date;
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = [NSString stringWithFormat:@"Relaunch to finish updating Dia to %@", version];
+    alert.informativeText = @"It's downloaded and patched. Browser updates usually fix security problems, and this one only takes effect once Dia relaunches.";
+    [alert addButtonWithTitle:@"Relaunch Now"];
+    [alert addButtonWithTitle:@"Later"];
+    void (^answered)(NSModalResponse) = ^(NSModalResponse response) {
+        if (response == NSAlertFirstButtonReturn) [DPUpdates.shared installAndRelaunch:@[DPDia]];
+    };
+    if (window) [alert beginSheetModalForWindow:window completionHandler:answered];
+    else answered([alert runModal]);
 }
 
 void DPInstallUpdates(void) {
     DPOnLaunch(^{
         DPOnMenuItem(nil, @"Check for Updates", ^{ DPShowUpdateAlert(); });
+        [NSTimer scheduledTimerWithTimeInterval:DPLookEvery repeats:YES block:^(NSTimer *_) { DPRemindToRelaunch(); }];
         if (DPAutoLevelOf(DPDia) == DPAutoOff && DPAutoLevelOf(DPTweaks) == DPAutoOff) return;
         DPUpdates *updates = DPUpdates.shared;
         [updates check:^{
