@@ -51,7 +51,7 @@ Releases are built and signed on a maintainer's Mac, never by CI: installs only 
    - ✨ New tweaks: every patch added since the last tag, with its description and wiki page.
    - ⚡️ Improvements: every other `feat`.
    - 🐛 Fixes: every `fix` and `perf`.
-   - 🧪 Tested with Dia `VERSION`: replace it with the Dia you tested on.
+   - 🧪 Tested with Dia `VERSION`: set `DIA_VERSION` when running `scripts/release` to fill it in, or replace it by hand.
 3. Reword the notes as you like, then publish. Settings doesn't show them, only a Release Notes link to the release. Installs see it within the hour.
 
 Installs only move forward: a release whose signed `VERSION` isn't newer than the installed one, or doesn't match its tag, is refused. To fix a broken release, ship the next patch version.
