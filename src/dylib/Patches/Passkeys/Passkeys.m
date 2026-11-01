@@ -90,10 +90,20 @@ static BOOL DPRegisterHost(NSString *extensionID) {
 
 static BOOL gExtensionLoaded;
 
+// Chromium only reads the last --load-extension, so one already on the command line gets this folder added to it.
+static NSArray<NSString *> *DPWithExtension(NSArray<NSString *> *argv, NSString *folder) {
+    NSUInteger existing = [argv indexOfObjectPassingTest:^BOOL(NSString *arg, NSUInteger i, BOOL *stop) { return [arg hasPrefix:@"--load-extension="]; }];
+    if (existing == NSNotFound) return [argv arrayByAddingObject:[@"--load-extension=" stringByAppendingString:folder]];
+    NSMutableArray *merged = [argv mutableCopy];
+    merged[existing] = [NSString stringWithFormat:@"%@,%@", argv[existing], folder];
+    return merged;
+}
+
 // Dia passes Chromium its command line here.
 static id DPConfiguration_init(id self, SEL _cmd, int argc, NSArray *argv, NSString *profilePath, NSUInteger applicationID, BOOL isProduction,
                                NSUInteger restorationPolicy, BOOL loadAllProfiles, BOOL quitRunLoop, NSString *suiteName) {
-    return DPCallOriginal(DPConfiguration_init, self, argc + 1, [argv arrayByAddingObject:[@"--load-extension=" stringByAppendingString:DPAppSupport(@"DiaPatches/passkeys-extension")]], profilePath, applicationID, isProduction,
+    NSArray *withExtension = DPWithExtension(argv, DPAppSupport(@"DiaPatches/passkeys-extension"));
+    return DPCallOriginal(DPConfiguration_init, self, argc + (int)(withExtension.count - argv.count), withExtension, profilePath, applicationID, isProduction,
                           restorationPolicy, loadAllProfiles, quitRunLoop, suiteName);
 }
 

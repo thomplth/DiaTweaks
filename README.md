@@ -104,6 +104,8 @@ Only to keep Dia updated: a launchd job runs `diapatch scheduled` every 15 minut
 
 Dia's own passkey support needs an Apple entitlement only The Browser Company's signature can carry, so the patched Dia can't reach Apple Passwords by itself. **Allow iCloud passkeys** (on by default) works around it: for each passkey, the original Dia that DiaTweaks keeps opens behind the Touch ID prompt, then quits. Sign in to Dia in that copy once when it asks.
 
+The **iCloud Passwords** extension has the same problem: macOS only lets browsers signed by their own developers start the helper it talks to. **Allow iCloud Passwords** (on by default) relays it through the original Dia, which runs in the background without windows while the extension is connected. See [how it works](docs/tweaks/Allow-iCloud-Passwords.md).
+
 Passkeys in 1Password, Bitwarden and other managers work through their own extensions and don't need any of this. If 1Password calls Dia an unknown browser, add it under **1Password → Settings → Browser**. Hardware security keys work either way.
 
 </details>

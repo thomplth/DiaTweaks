@@ -14,6 +14,7 @@ struct DPPatch {
     __unsafe_unretained NSString *title, *detail;
     __unsafe_unretained NSString *symbol, *tint;  // SF Symbol and NSColor class property for the row's icon.
     __unsafe_unretained NSString *section;  // Its group in Settings.
+    __unsafe_unretained NSString *page;     // Its documentation, for a tweak only this fork has; others live on the upstream wiki.
     const char *const *classes;  // Dia classes it needs (DPClasses). If one is missing, it stays off and Settings says so.
     __unsafe_unretained NSString *requires;    // Key of a patch that must be on. Settings lists this one as an option on that patch's page.
     __unsafe_unretained NSString *disabledBy;  // Key of a patch that, while on, hides what this one changes. Settings marks it.
