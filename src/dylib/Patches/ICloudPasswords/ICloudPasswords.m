@@ -1,5 +1,6 @@
 #import "StdPatch/StdPatch.h"
 #import "Updates/Updates.h"
+#include <libproc.h>
 
 // Apple's iCloud Passwords extension asks for this host by name, and Chromium prefers a user's copy of a host over the
 // system's, so registering it here sends the extension to diapatch, which relays it through the original Dia.
@@ -38,7 +39,27 @@ static void DPRegisterHost(BOOL on) {
     [[NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil] writeToFile:DPHostManifestPath() atomically:YES];
 }
 
-static void DPInstallICloudPasswords(void) { DPRegisterHost(DPICloudPasswords.on); }
+// The relay quits the original Dia a few seconds after this one quits. Opened again before then, Dia would find it
+// still running and refuse to start ("Dia is already open"), so it's stopped first; this runs before Dia checks.
+static void DPStopOriginalDia(void) {
+    char original[PATH_MAX], path[PROC_PIDPATHINFO_MAXSIZE];
+    NSString *dia = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject
+        stringByAppendingPathComponent:@"DiaPatches/pristine/Dia.app/Contents/MacOS/Dia"];
+    if (!realpath(dia.fileSystemRepresentation, original)) return;
+    int capacity = proc_listallpids(NULL, 0) + 64;
+    pid_t pids[capacity];
+    int count = proc_listallpids(pids, capacity * (int)sizeof *pids);
+    for (int i = 0; i < count; i++) {
+        if (proc_pidpath(pids[i], path, sizeof path) <= 0 || strcmp(path, original)) continue;
+        kill(pids[i], SIGKILL);
+        for (int tries = 0; tries < 50 && kill(pids[i], 0) == 0; tries++) usleep(20000);
+    }
+}
+
+static void DPInstallICloudPasswords(void) {
+    DPStopOriginalDia();
+    DPRegisterHost(DPICloudPasswords.on);
+}
 
 static void DPApplyICloudPasswords(DPPatch *patch) { DPRegisterHost(patch->on); }
 
