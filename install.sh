@@ -33,6 +33,8 @@ if [ -f cli/Cargo.toml ]; then
 fi
 
 rm -rf "$incoming"
+# A release staged earlier would otherwise replace this build the next time Dia quits.
+rm -rf "$support/staged/DiaTweaks" "$support/staged/DiaTweaks.building"
 mkdir -p "$incoming" "$support/bin"
 cp build/diapatch build/DiaPatches.dylib build/patches.json ${cli:+"$cli"} "$incoming/"
 # Each rename is atomic, and Ctrl-C waits until all are done, so the installed files always come from one build.
