@@ -208,20 +208,25 @@ static NSDictionary *runInHelper(pid_t pid, NSString *kind, NSString *origin, id
 
     send(@"Browser.setWindowBounds", @{ @"windowId" : windowId, @"bounds" : sheetBounds() }, nil);
     NSString *session = send(@"Target.attachToTarget", @{ @"targetId" : targetId, @"flatten" : @YES }, nil)[@"result"][@"sessionId"];
-    // Any page at the origin works, and robots.txt runs none of the site's scripts.
+    // Any page at the origin works, and robots.txt usually runs none of the site's scripts.
+    BOOL arrived = NO;
     for (NSString *path in @[ @"/robots.txt", @"/" ]) {
         send(@"Page.navigate", @{ @"url" : [origin stringByAppendingString:path] }, session);
-        if (atOrigin(session, origin)) break;
+        if ((arrived = atOrigin(session, origin))) break;
     }
+    if (!arrived) return failure(@"The site sent the passkey copy of Dia somewhere else.");
     evaluate(session, page(@"Use your passkey for {site}", @"DiaTweaks opened this window to reach Apple Passwords. It closes by itself."));
     tellDia(@"show", pid);
     // WebAuthn refuses a page without focus, which it only gets once Dia has brought the copy forward.
     for (int tries = 0; tries < 30; tries++, usleep(100000))
         if ([evaluate(session, @"document.hasFocus()") boolValue]) break;
 
-    NSData *json = [NSJSONSerialization dataWithJSONObject:@{ @"kind" : kind, @"options" : options } options:0 error:nil];
+    NSData *json = [NSJSONSerialization dataWithJSONObject:@{ @"kind" : kind, @"options" : options, @"origin" : origin } options:0 error:nil];
+    // The site can serve robots.txt as HTML and navigate away after arriving, and the passkey would then be for wherever
+    // it went. Checked in the same task that starts the request, it can't move in between.
     // The timeout stops a picker left open from blocking every request after it.
-    NSString *script = [NSString stringWithFormat:@"(async ({ kind, options }) => {"
+    NSString *script = [NSString stringWithFormat:@"(async ({ kind, options, origin }) => {"
+                                                    "  if (location.origin !== origin) return { error: { name: 'NotAllowedError', message: 'The site left before the passkey request.' } };"
                                                     "  const signal = AbortSignal.timeout(Math.min(options.timeout || 300000, 600000));"
                                                     "  try {"
                                                     "    const credential = kind === 'create'"
