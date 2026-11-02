@@ -18,3 +18,7 @@
 #define DPDiaSettingsSidebar    "_TtC11Preferences15SidebarListView"
 #define DPDiaSettingsSidebarCell "_TtC11PreferencesP33_4E27E2219272DF78406B73092738280415SidebarCellView"
 #define DPDiaDownloadsMenu      "_TtC15DownloadsButton27DownloadsMenuViewController"
+#define DPDiaTabView            "_TtC5TabUI7TabView"
+#define DPDiaTabGroupCell       "_TtC5TabUI16TabGroupCellView"
+#define DPDiaTabGroupView       "_TtC5TabUI12TabGroupView"
+#define DPDiaMenuBarManager     "_TtC7MenuBar32KeyEquivalentMatchingMenuManager"
