@@ -10,7 +10,7 @@ RELEASE_SIGNERS ?= release-signers
 CDHASH = $$(codesign -dvvv $(1) 2>&1 | sed -n 's/^CDHash=//p')
 
 build/diapatch: $(wildcard src/diapatch/*.[hm]) $(RELEASE_SIGNERS) | build
-	clang $(CFLAGS) -framework Foundation -framework CoreGraphics -framework Security -Wl,-sectcreate,__TEXT,__signers,$(RELEASE_SIGNERS) -o $@ $(filter %.m,$^)
+	clang $(CFLAGS) -framework AppKit -framework CoreGraphics -framework Security -Wl,-sectcreate,__TEXT,__signers,$(RELEASE_SIGNERS) -o $@ $(filter %.m,$^)
 
 # The dylib only runs the diapatch it was built with.
 build/DiaPatches.dylib: $(DYLIB_SOURCES) $(wildcard $(PASSKEYS)/*) build/diapatch | build
