@@ -8,10 +8,10 @@ macOS only lets browsers signed by their own developers start the helper the ext
 
 ## How it works
 
-DiaTweaks registers itself as the extension's helper. When the patched Dia connects, DiaTweaks starts the original Dia it keeps, in the background with no windows, and that copy starts Apple's helper and passes every message along. The copy quits about 20 seconds after the last connection closes. You may see a second Dia in the Dock while it runs.
+DiaTweaks registers itself as the extension's helper. When the patched Dia connects, DiaTweaks starts the original Dia it keeps, headless and without windows, and hands the connection to the first process that copy starts, which becomes Apple's helper. macOS only checks who starts the helper, so the copy quits within a second and the helper talks to the extension directly from then on. A second Dia icon may flash in the Dock as it starts.
 
-Only `diapatch`, started by the patched Dia, can use the relay. Other browsers, like Chrome, still reach Apple's helper directly.
+The extension connects once per profile when Dia opens, and again whenever its connection drops. Only `diapatch`, started by the patched Dia, starts the helper this way. Other browsers, like Chrome, still reach Apple's helper directly.
 
 ## Turning it off
 
-Switch off **Allow iCloud Passwords** in **Settings → Patches**. Restoring the original Dia removes the relay too.
+Switch off **Allow iCloud Passwords** in **Settings → Patches**. Restoring the original Dia removes the helper registration too.

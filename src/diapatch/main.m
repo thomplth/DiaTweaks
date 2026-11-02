@@ -24,6 +24,7 @@ static NSString *const kReleaseAsset = @"DiaTweaks.zip";
 static NSString *const kReleaseSignature = @"DiaTweaks.zip.sig";
 static NSString *const kReleaseSigner = @"diatweaks-release";
 static NSString *const kAgent = @"com.diapatches.update";
+static NSString *const kRelayAgent = @"com.diapatches.passwords";  // older versions relayed iCloud Passwords through it
 static NSString *const kPrefsDomain = @"com.diapatches";
 static NSString *const kDiaReleaseNotes = @"https://www.diabrowser.com/release-notes/latest";
 
@@ -689,7 +690,8 @@ static BOOL installAgent(void) {
         @"ProcessType" : @"Background",
         @"LowPriorityIO" : @YES,
     };
-    return loadAgent(agent) && loadAgent(DPPasswordsAgentPlist(gHome, inHome(@"bin/diapatch"), environment));
+    removeAgent(kRelayAgent);
+    return loadAgent(agent) && removeTree(inHome(@"passwords-helper")) && removeTree(inHome(@"passwords.sock"));
 }
 
 typedef NS_ENUM(NSInteger, AutoLevel) { AutoOff, AutoNotify, AutoDownload, AutoInstall };
@@ -732,7 +734,7 @@ static BOOL purge(void) {
     }
     for (NSString *name in @[ @"bin", @DYLIB, @"patches.json", @"release.plist", @"pristine", @"staged", @"identity", @"diapatch.log", @"safe-mode.plist",
                               @".diatweaks.lock", @".incoming", @"last-check", @"passkey-helper", @"passkey-helper.lock", @"passkeys-extension",
-                              @"passkeys-extension.key", @"passwords-helper", @"passwords.sock" ])
+                              @"passkeys-extension.key", @"passwords-helper", @"passwords.sock", @"passwords-launch" ])
         if (!discard(inHome(name))) return NO;
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:gHome error:NULL])
         if ([name hasPrefix:@".update-"] && !removeTree(inHome(name))) return NO;  // checkouts left by an interrupted diatweaks update
@@ -745,7 +747,7 @@ static BOOL purge(void) {
 static BOOL uninstall(BOOL purgeFiles) {
     if (appRunning()) return fail(@"Dia is running; quit it, then run `diapatch uninstall`");
     removeAgent(kAgent);
-    removeAgent(DPPasswordsAgent);
+    removeAgent(kRelayAgent);
     // The official Dia has its own passkeys and reaches iCloud Passwords itself, and nothing else should reach diapatch.
     removeTree([NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Google/Chrome/NativeMessagingHosts/com.diapatches.passkeys.json"]);
     removePasswordsHost();
@@ -832,13 +834,13 @@ static const char kUsage[] =
     "                   put the official Dia back; --purge also deletes DiaPatches' files and the diatweaks command\n"
     "  status [--json]  official, installed, staged and offered versions, and the update channel\n"
     "  scheduled        what the background agent runs: check hourly, stage updates and install them while Dia is closed\n"
-    "  passwords-relay  what launchd runs on the iCloud Passwords relay's socket\n"
     "environment: DIAPATCH_IDENTITY (codesigning identity, remembered by install), DIAPATCH_HOME,\n"
     "  DIAPATCH_APP, DIAPATCH_CACHE, DIAPATCH_FEED, DIAPATCH_RELEASES, DIATWEAKS_LINK_DIR, DIAPATCH_NO_RELAUNCH (ignore --relaunch),\n"
     "  DIAPATCH_NO_AGENT (install leaves the background agent alone)\n";
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        if (DPIsPasswordsHandoff(argc, argv)) return DPRunPasswordsHandoff();
         signal(SIGPIPE, SIG_IGN);
         gHome = env("DIAPATCH_HOME") ?: [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/DiaPatches"];
         gApp = env("DIAPATCH_APP") ?: @"/Applications/Dia.app";
@@ -847,10 +849,9 @@ int main(int argc, const char *argv[]) {
         gStaged = inHome(@"staged/Dia.app");
         gReady = inHome(@"staged/ready");
         gStagedTweaks = inHome(@"staged/DiaTweaks");
-        // Started by a browser as a native messaging host, or by launchd on the iCloud Passwords relay's socket.
+        // Started by a browser as a native messaging host.
         if (argc > 1 && !strncmp(argv[1], "chrome-extension://", 19))
             return DPIsPasswordsOrigin(argv[1]) ? DPRunPasswordsHost(gHome, gApp, argc, argv) : DPRunPasskeyHost(gHome);
-        if (argc > 1 && !strcmp(argv[1], "passwords-relay")) return DPRunPasswordsRelay(gHome, gApp);
 
         NSString *command = argc > 1 ? @(argv[1]) : @"";
         NSArray<NSString *> *allowed = @{

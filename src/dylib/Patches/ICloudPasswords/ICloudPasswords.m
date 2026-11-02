@@ -3,7 +3,7 @@
 #include <libproc.h>
 
 // Apple's iCloud Passwords extension asks for this host by name, and Chromium prefers a user's copy of a host over the
-// system's, so registering it here sends the extension to diapatch, which relays it through the original Dia.
+// system's, so registering it here sends the extension to diapatch, which has the original Dia start Apple's helper.
 
 extern DPPatch DPICloudPasswords;
 
@@ -39,8 +39,9 @@ static void DPRegisterHost(BOOL on) {
     [[NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil] writeToFile:DPHostManifestPath() atomically:YES];
 }
 
-// The relay quits the original Dia a few seconds after this one quits. Opened again before then, Dia would find it
-// still running and refuse to start ("Dia is already open"), so it's stopped first; this runs before Dia checks.
+// A copy of the original Dia that diapatch started, for a passkey or to start Apple's helper, can outlive the last
+// session. Dia opened while it runs refuses to start ("Dia is already open"), so it's stopped first; this runs before
+// Dia checks.
 static void DPStopOriginalDia(void) {
     char original[PATH_MAX], path[PROC_PIDPATHINFO_MAXSIZE];
     NSString *dia = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject
@@ -68,7 +69,7 @@ DP_PATCH(DPICloudPasswords) {
     .order = 101,
     .defaultOn = YES,
     .title = @"Allow iCloud Passwords",
-    .detail = @"Lets the iCloud Passwords extension fill passwords from Apple Passwords, which a patched Dia can't reach. While the extension is connected, the original Dia that DiaTweaks keeps runs in the background without windows and talks to Apple Passwords for it. Experimental.",
+    .detail = @"Lets the iCloud Passwords extension fill passwords from Apple Passwords, which a patched Dia can't reach. Each time the extension connects, the original Dia that DiaTweaks keeps opens for a moment, without windows, to start Apple's helper for it. Experimental.",
     .symbol = @"key.fill",
     .tint = @"systemBlueColor",
     .section = @"Passwords",

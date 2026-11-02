@@ -1,9 +1,7 @@
 // Apple's iCloud Passwords helper carries a launch constraint that only lets browsers signed by their own developers
 // start it, so the patched Dia, signed on this Mac, gets it killed at launch. This host stands in for it: browsers Apple
-// trusts get the helper itself, and the patched Dia goes through the relay, where the original Dia starts the helper.
-#import <poll.h>
-#import <sys/socket.h>
-#import <sys/un.h>
+// trusts get the helper itself, and for the patched Dia the original Dia starts the helper on this host's stdio.
+#import <sys/event.h>
 #import "Passwords.h"
 #import "PasswordsParts.h"
 
@@ -15,38 +13,32 @@ BOOL DPIsPasswordsOrigin(const char *origin) {
     return !strcmp(origin, DPAppleExtensions[0]) || !strcmp(origin, DPAppleExtensions[1]);
 }
 
-NSString *DPPasswordsSocket(NSString *home) { return [home stringByAppendingPathComponent:@"passwords.sock"]; }
-
-static NSString *appleHelper(void) {
+NSString *DPAppleHelper(void) {
     NSDictionary *host = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:kAppleHost] ?: NSData.data options:0 error:nil];
     return [host isKindOfClass:NSDictionary.class] && [host[@"path"] isKindOfClass:NSString.class] ? host[@"path"] : nil;
 }
 
-static BOOL copyAll(int from, int to) {
-    char buffer[65536];
-    ssize_t got = read(from, buffer, sizeof buffer);
-    for (ssize_t sent = 0, n; sent < got; sent += n)
-        if ((n = write(to, buffer + sent, got - sent)) <= 0) return NO;
-    return got > 0;
+static void waitForExit(pid_t pid) {
+    int queue = kqueue();
+    struct kevent change, event;
+    EV_SET(&change, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
+    if (queue >= 0 && kevent(queue, &change, 1, NULL, 0, NULL) == 0) kevent(queue, NULL, 0, &event, 1, NULL);
 }
 
 // exec keeps the browser that started this as the helper's parent, which is what the launch constraint checks.
 int DPRunPasswordsHost(NSString *home, NSString *app, int argc, const char *argv[]) {
     if (!DPRunsPatchedDia(getppid(), app)) {
-        NSString *helper = appleHelper();
+        NSString *helper = DPAppleHelper();
         if (!helper) return 1;
         argv[0] = helper.fileSystemRepresentation;
         execv(argv[0], (char *const *)argv);
         return 1;
     }
-    struct sockaddr_un address = { .sun_family = AF_UNIX };
-    if (strlcpy(address.sun_path, DPPasswordsSocket(home).fileSystemRepresentation, sizeof address.sun_path) >= sizeof address.sun_path) return 1;
-    int relay = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (relay < 0 || connect(relay, (struct sockaddr *)&address, sizeof address) != 0) return 1;
-    struct pollfd fds[2] = { { .fd = STDIN_FILENO, .events = POLLIN }, { .fd = relay, .events = POLLIN } };
-    while (poll(fds, 2, -1) > 0) {
-        if (fds[0].revents && !copyAll(STDIN_FILENO, relay)) break;
-        if (fds[1].revents && !copyAll(relay, STDOUT_FILENO)) break;
-    }
+    pid_t helper = DPStartHelperThroughOriginal(home, argc, argv);
+    if (!helper) return 1;
+    // Chromium hears the helper has gone from the pipes closing, which they only do once this holds no end of them.
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    waitForExit(helper);
     return 0;
 }

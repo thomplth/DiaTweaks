@@ -1,7 +1,5 @@
 #import <Security/Security.h>
 #import <libproc.h>
-#import <sys/socket.h>
-#import <sys/un.h>
 #import "PasswordsParts.h"
 
 static NSData *cdhashOf(SecStaticCodeRef code) {
@@ -54,30 +52,11 @@ BOOL DPRunsPatchedDia(pid_t pid, NSString *app) {
     return runs(@{ (__bridge NSString *)kSecGuestAttributePid : @(pid) }, cdhashOnDisk(executableOf(app)));
 }
 
-BOOL DPPatchedDiaRunning(NSString *app) {
-    char path[PROC_PIDPATHINFO_MAXSIZE];
-    const char *dia = executableOf(app).stringByResolvingSymlinksInPath.fileSystemRepresentation;
-    int capacity = proc_listallpids(NULL, 0) + 64;
-    pid_t pids[capacity];
-    int count = proc_listallpids(pids, capacity * (int)sizeof *pids);
-    for (int i = 0; i < count; i++)
-        if (proc_pidpath(pids[i], path, sizeof path) > 0 && !strcmp(path, dia)) return YES;
-    return NO;
+BOOL DPRunsThisDiapatch(audit_token_t token) {
+    return runs(@{ (__bridge NSString *)kSecGuestAttributeAudit : [NSData dataWithBytes:&token length:sizeof token] }, cdhashOfSelf());
 }
 
-static pid_t parentOf(pid_t pid) {
+pid_t DPParentOf(pid_t pid) {
     struct proc_bsdinfo info;
     return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof info) == sizeof info ? (pid_t)info.pbi_ppid : 0;
-}
-
-// Only this diapatch, started by the patched Dia, gets the original Dia's standing with Apple's helper.
-BOOL DPTrustedRelayPeer(int fd, NSString *app) {
-    audit_token_t token;
-    socklen_t tokenLength = sizeof token;
-    pid_t pid = 0;
-    socklen_t pidLength = sizeof pid;
-    if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &tokenLength) != 0 || getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidLength) != 0)
-        return NO;
-    return runs(@{ (__bridge NSString *)kSecGuestAttributeAudit : [NSData dataWithBytes:&token length:sizeof token] }, cdhashOfSelf())
-        && DPRunsPatchedDia(parentOf(pid), app);
 }
