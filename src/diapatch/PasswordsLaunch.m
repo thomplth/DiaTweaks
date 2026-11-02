@@ -1,5 +1,6 @@
 // The helper's launch constraint only looks at its parent as the helper starts. So the original Dia runs just until it
 // starts its first subprocess, this diapatch, which takes the host's stdio and becomes the helper; Dia is then quit.
+// The helper names its browser after its parent each time it opens a window, so its pairing window says "(null)".
 #import <libproc.h>
 #import <poll.h>
 #import <spawn.h>
