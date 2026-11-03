@@ -22,3 +22,6 @@
 #define DPDiaTabGroupCell       "_TtC5TabUI16TabGroupCellView"
 #define DPDiaTabGroupView       "_TtC5TabUI12TabGroupView"
 #define DPDiaMenuBarManager     "_TtC7MenuBar32KeyEquivalentMatchingMenuManager"
+#define DPDiaNewTabPage         "_TtC10NewTabPage21NewTabPageContentView"
+#define DPDiaTabList            "_TtC7TabList11TabListView"
+#define DPDiaHoverableButton    "_TtC5ARCUI15HoverableButton"
