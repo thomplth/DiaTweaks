@@ -19,7 +19,7 @@ static NSString *const DPSavedSpacesKey = @"windowSpaces";
 static const NSUInteger DPSavedSpacesLimit = 50;
 static NSUserDefaults *DPDefaults;
 static NSMapTable<NSWindow *, id> *DPBrowserByWindow;
-static NSHashTable<NSWindow *> *DPPlacedWindows;
+static NSMapTable<NSWindow *, NSString *> *DPPlacedAs;
 
 // Desktops by ManagedSpaceID. Full-screen spaces are left out: Dia puts full-screen windows back itself.
 static NSDictionary<NSNumber *, NSDictionary *> *DPDesktops(void) {
@@ -68,10 +68,10 @@ static void DPSaveSpaces(void) {
     NSDictionary *desktops = DPDesktops();
     NSMutableDictionary *saved = [DPSavedSpaces() mutableCopy];
     BOOL changed = NO;
-    for (NSWindow *window in DPPlacedWindows.allObjects) {
+    for (NSWindow *window in DPPlacedAs.keyEnumerator.allObjects) {
         NSString *identifier = DPIdentifierOf(window);
         NSDictionary *desktop = DPDesktopOf(window, desktops);
-        if (!identifier || !desktop) continue;
+        if (![identifier isEqual:[DPPlacedAs objectForKey:window]] || !desktop) continue;
         NSDictionary *entry = @{@"id": desktop[@"ManagedSpaceID"], @"uuid": desktop[@"uuid"] ?: @"", @"seen": NSDate.date};
         NSDictionary *previous = saved[identifier];
         if ([previous[@"id"] isEqual:entry[@"id"]] && [previous[@"uuid"] isEqual:entry[@"uuid"]]) continue;
@@ -106,63 +106,79 @@ static void DPMoveToSavedSpace(NSWindow *window, NSString *identifier) {
     CGSMoveWindowsToManagedSpace(CGSMainConnectionID(), (__bridge CFArrayRef)DPWindowNumbersWithChildren(window), target.unsignedLongLongValue);
 }
 
-static const int DPIdentifierAttempts = 25;
-
-// A restored window is placed the first time it's on screen and its browser knows which saved window it is. Until then
-// it sits on whichever Space Dia opened it on, so it isn't saved: that would overwrite where it belongs. Dia can hold
-// windows back for a long time, behind the keychain prompt after an install for one, so only the identifier is waited
-// for with a limit.
-static void DPPlace(NSWindow *window, int identifierAttemptsLeft) {
-    if (!window || !DPRestoreSpaces.on || [DPPlacedWindows containsObject:window]) return;
-    if (!window.visible || window.windowNumber <= 0 || ![DPBrowserByWindow objectForKey:window]) return;
+static BOOL DPIsPlaced(NSWindow *window) {
     NSString *identifier = DPIdentifierOf(window);
-    if (!identifier && identifierAttemptsLeft > 0) {
-        __weak NSWindow *weakWindow = window;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-            DPPlace(weakWindow, identifierAttemptsLeft - 1);
-        });
-        return;
-    }
-    if (identifier) DPMoveToSavedSpace(window, identifier);
-    [DPPlacedWindows addObject:window];
+    return identifier && [identifier isEqual:[DPPlacedAs objectForKey:window]];
+}
+
+// A window is placed the first time it's on screen while its browser knows which saved window it is, and again if
+// that identifier changes. Until then it sits on whichever Space Dia opened it on, so it isn't saved: that would
+// overwrite where it belongs. Dia can hold windows back for a long time, behind the keychain prompt after an install
+// for one, so nothing here gives up waiting.
+static void DPPlace(NSWindow *window) {
+    if (!window || !DPRestoreSpaces.on || !window.visible || window.windowNumber <= 0 || DPIsPlaced(window)) return;
+    NSString *identifier = DPIdentifierOf(window);
+    if (!identifier) return;
+    DPMoveToSavedSpace(window, identifier);
+    [DPPlacedAs setObject:identifier forKey:window];
     DPSaveSpacesSoon();
 }
 
 static void DPPlaceSoon(NSWindow *window) {
     __weak NSWindow *weakWindow = window;
-    dispatch_async(dispatch_get_main_queue(), ^{ DPPlace(weakWindow, DPIdentifierAttempts); });
+    dispatch_async(dispatch_get_main_queue(), ^{ DPPlace(weakWindow); });
+}
+
+static const NSTimeInterval DPUnplacedCheckInterval = 0.25;
+static const NSTimeInterval DPUnplacedCheckLimit = 120;
+
+// Showing a window calls the hooks below, but Dia can give a shown window its identifier later without any of them.
+static void DPPlaceUnplacedWindows(NSDate *since) {
+    BOOL waiting = NO;
+    for (NSWindow *window in DPBrowserByWindow.keyEnumerator.allObjects) {
+        DPPlace(window);
+        waiting |= window.visible && !DPIsPlaced(window);
+    }
+    if (!waiting || !DPRestoreSpaces.on || -since.timeIntervalSinceNow > DPUnplacedCheckLimit) return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(DPUnplacedCheckInterval * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        DPPlaceUnplacedWindows(since);
+    });
 }
 
 static void DPBrowser_setWindow(id self, SEL _cmd, NSWindow *window) {
     DPCallOriginal(DPBrowser_setWindow, self, window);
     if (!window) return;
     [DPBrowserByWindow setObject:self forKey:window];
-    DPPlaceSoon(window);
+    dispatch_async(dispatch_get_main_queue(), ^{ DPPlaceUnplacedWindows(NSDate.date); });
 }
 
 static void DPWindow_orderWindow(NSWindow *self, SEL _cmd, NSWindowOrderingMode place, NSInteger otherWindow) {
     DPCallOriginal(DPWindow_orderWindow, self, place, otherWindow);
-    if (place != NSWindowOut && [DPBrowserByWindow objectForKey:self] && ![DPPlacedWindows containsObject:self]) DPPlaceSoon(self);
+    if (place != NSWindowOut && [DPBrowserByWindow objectForKey:self] && !DPIsPlaced(self)) DPPlaceSoon(self);
 }
 
 static void DPApplyRestoreSpaces(DPPatch *patch) {
     if (!patch->on) return;
-    for (NSWindow *window in DPBrowserByWindow.keyEnumerator.allObjects) [DPPlacedWindows addObject:window];
+    for (NSWindow *window in DPBrowserByWindow.keyEnumerator.allObjects) {
+        NSString *identifier = DPIdentifierOf(window);
+        if (identifier) [DPPlacedAs setObject:identifier forKey:window];
+    }
     DPSaveSpacesSoon();
 }
 
 static void DPInstallRestoreSpaces(void) {
     DPDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
     DPBrowserByWindow = [NSMapTable weakToWeakObjectsMapTable];
-    DPPlacedWindows = [NSHashTable weakObjectsHashTable];
+    DPPlacedAs = [NSMapTable weakToStrongObjectsMapTable];
     DPHook(DPDiaBrowser, @selector(setWindow:), (IMP)DPBrowser_setWindow);
     DPHookClass(NSWindow.class, @selector(orderWindow:relativeTo:), (IMP)DPWindow_orderWindow);
 
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     for (NSNotificationName name in @[NSWindowDidBecomeKeyNotification, NSWindowDidChangeOcclusionStateNotification])
         [center addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
-            if ([DPPlacedWindows containsObject:note.object]) DPSaveSpacesSoon();
-            else if ([DPBrowserByWindow objectForKey:note.object]) DPPlaceSoon(note.object);
+            if (![DPBrowserByWindow objectForKey:note.object]) return;
+            if (DPIsPlaced(note.object)) DPSaveSpacesSoon();
+            else DPPlaceSoon(note.object);
         }];
     [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification object:nil queue:nil
                                                             usingBlock:^(NSNotification *_) { DPSaveSpacesSoon(); }];
