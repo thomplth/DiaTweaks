@@ -12,7 +12,7 @@ Turn tweaks on and off in **Dia → Settings → Patches**, or with the `diatwea
 
 [See all tweaks →](https://github.com/JaceThings/DiaTweaks/wiki)
 
-This fork adds [Allow iCloud Passwords](docs/tweaks/Allow-iCloud-Passwords.md), [Don't pop up downloads](docs/tweaks/Dont-pop-up-downloads.md) and [Rename shortcuts](docs/tweaks/Rename-shortcuts.md).
+This fork adds [Allow iCloud Passwords](docs/tweaks/Allow-iCloud-Passwords.md), [Don't pop up downloads](docs/tweaks/Dont-pop-up-downloads.md), [Rename shortcuts](docs/tweaks/Rename-shortcuts.md) and [Reopen windows on their Spaces](docs/tweaks/Reopen-windows-on-their-Spaces.md).
 
 ## Install
 
