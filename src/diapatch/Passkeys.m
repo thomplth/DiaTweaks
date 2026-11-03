@@ -172,12 +172,50 @@ static DPStartup waitForStartupTab(pid_t pid, int seconds, NSString **targetId, 
 static NSString *page(NSString *title, NSString *detail) {
     NSString *html = [NSString stringWithFormat:
         @"<!doctype html><meta name=color-scheme content='light dark'><title>Passkey</title>"
-         "<style>html,body{height:100%%;margin:0}body{display:grid;place-items:center;text-align:center;font:13px -apple-system,sans-serif;"
-         "background:Canvas;color:CanvasText}b{display:block;font-size:15px;margin-bottom:6px}p{margin:0;opacity:.6}</style>"
-         "<div><b>%@</b><p>%@</p></div>", title, detail];
+         "<style>"
+         ":root{--ground:#f5f5f7;--ink:#1d1d1f;--muted:#6e6e73;--accent:#0071e3}"
+         "@media (prefers-color-scheme:dark){:root{--ground:#1c1c1e;--ink:#f5f5f7;--muted:#98989d;--accent:#0a84ff}}"
+         "html,body{height:100%%;margin:0}"
+         "body{display:grid;place-items:center;padding:0 28px;text-align:center;background:var(--ground);color:var(--ink);"
+         "font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;-webkit-font-smoothing:antialiased;user-select:none;cursor:default}"
+         "svg{width:40px;height:40px;color:var(--accent);margin-bottom:12px}"
+         "h1{font-size:15px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}"
+         "p{margin:0;color:var(--muted);text-wrap:balance}"
+         "</style>"
+         "<div><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'>"
+         "<circle cx='8' cy='7' r='3.5'/><path d='M2.5 20c0-3.3 2.5-6 5.5-6 1.3 0 2.5.5 3.4 1.3'/>"
+         "<circle cx='17' cy='11.5' r='2.5'/><path d='M17 14v6.5m0-3h2m-2 2h1.5'/></svg>"
+         "<h1>%@</h1><p>%@</p></div>", title, detail];
     NSData *json = [NSJSONSerialization dataWithJSONObject:@[ html ] options:0 error:nil];
     return [NSString stringWithFormat:@"document.open(); document.write(%@[0].replace('{site}', location.host)); document.close()",
                                       [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
+}
+
+static NSSet<NSString *> *pageTargets(void) {
+    NSMutableSet *ids = [NSMutableSet set];
+    for (NSDictionary *target in send(@"Target.getTargets", nil, nil)[@"result"][@"targetInfos"])
+        if ([target[@"type"] isEqualToString:@"page"]) [ids addObject:target[@"targetId"]];
+    return ids;
+}
+
+// A popup window has none of Dia's sidebar, toolbar or assistant, only a title bar and the site's origin.
+static NSString *openPopup(NSString *session) {
+    NSSet *before = pageTargets();
+    NSDictionary *bounds = sheetBounds();
+    NSString *features = [NSString stringWithFormat:@"popup,noopener,width=%@,height=%@,left=%@,top=%@", bounds[@"width"], bounds[@"height"], bounds[@"left"], bounds[@"top"]];
+    NSData *json = [NSJSONSerialization dataWithJSONObject:@[ features ] options:0 error:nil];
+    evaluate(session, [NSString stringWithFormat:@"window.open('about:blank', '', %@[0]), null",
+                                                 [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]]);
+    for (int tries = 0; tries < 50; tries++, usleep(100000)) {
+        NSMutableSet *opened = [pageTargets() mutableCopy];
+        [opened minusSet:before];
+        if (!opened.count) continue;
+        NSString *targetId = opened.anyObject;
+        NSNumber *windowId = send(@"Browser.getWindowForTarget", @{ @"targetId" : targetId }, nil)[@"result"][@"windowId"];
+        if (windowId) send(@"Browser.setWindowBounds", @{ @"windowId" : windowId, @"bounds" : bounds }, nil);
+        return send(@"Target.attachToTarget", @{ @"targetId" : targetId, @"flatten" : @YES }, nil)[@"result"][@"sessionId"];
+    }
+    return nil;
 }
 
 static BOOL atOrigin(NSString *session, NSString *origin) {
@@ -206,8 +244,11 @@ static NSDictionary *runInHelper(pid_t pid, NSString *kind, NSString *origin, id
     }
     if (startup != DPStartupReady) return failure(@"The passkey copy of Dia didn't open.");
 
-    send(@"Browser.setWindowBounds", @{ @"windowId" : windowId, @"bounds" : sheetBounds() }, nil);
-    NSString *session = send(@"Target.attachToTarget", @{ @"targetId" : targetId, @"flatten" : @YES }, nil)[@"result"][@"sessionId"];
+    NSString *opener = send(@"Target.attachToTarget", @{ @"targetId" : targetId, @"flatten" : @YES }, nil)[@"result"][@"sessionId"];
+    send(@"Page.navigate", @{ @"url" : @"about:blank" }, opener);
+    NSString *session = openPopup(opener);
+    if (!session) return failure(@"The passkey copy of Dia didn't open its window.");
+    send(@"Browser.setWindowBounds", @{ @"windowId" : windowId, @"bounds" : @{ @"windowState" : @"minimized" } }, nil);
     // Any page at the origin works, and robots.txt usually runs none of the site's scripts.
     BOOL arrived = NO;
     for (NSString *path in @[ @"/robots.txt", @"/" ]) {
@@ -215,7 +256,7 @@ static NSDictionary *runInHelper(pid_t pid, NSString *kind, NSString *origin, id
         if ((arrived = atOrigin(session, origin))) break;
     }
     if (!arrived) return failure(@"The site sent the passkey copy of Dia somewhere else.");
-    evaluate(session, page(@"Use your passkey for {site}", @"DiaTweaks opened this window to reach Apple Passwords. It closes by itself."));
+    evaluate(session, page(@"Use your passkey for {site}", @"Apple Passwords needs the original Dia for passkeys, so DiaTweaks opened it here. This window closes by itself."));
     tellDia(@"show", pid);
     // WebAuthn refuses a page without focus, which it only gets once Dia has brought the copy forward.
     for (int tries = 0; tries < 30; tries++, usleep(100000))
@@ -237,7 +278,7 @@ static NSDictionary *runInHelper(pid_t pid, NSString *kind, NSString *origin, id
                                                     "})(%@)",
                                                    [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
     NSDictionary *result = evaluate(session, script);
-    if (result[@"credential"]) evaluate(session, page(@"Done", @"This window closes in a moment. Thanks for waiting."));
+    if (result[@"credential"]) evaluate(session, page(@"All set", @"This window closes in a moment."));
     return result ?: failure(@"The passkey copy of Dia quit before answering.");
 }
 
