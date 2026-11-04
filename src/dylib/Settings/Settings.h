@@ -16,7 +16,7 @@ NSTextField *DPLabel(NSString *text, CGFloat size, NSFontWeight weight, NSColor 
 NSTextField *DPHeader(NSString *text);
 NSView *DPIconTile(NSString *symbol, NSColor *color);
 NSView *DPIconTileOfSize(NSString *symbol, NSColor *color, CGFloat size);
-NSImageView *DPSymbol(NSString *symbol, CGFloat size, NSColor *color);
+NSImageView *DPSymbol(NSString *symbols, CGFloat size, NSColor *color);
 NSStackView *DPColumn(NSArray<NSView *> *views, CGFloat spacing);
 void DPFillStack(NSStackView *stack, NSArray<NSView *> *views);
 
@@ -34,17 +34,11 @@ void DPFillStack(NSStackView *stack, NSArray<NSView *> *views);
 - (void)sync;
 @end
 
-// A patch, or a command when `patch` is NULL.
-typedef struct {
-    DPPatch *patch;
-    __unsafe_unretained NSString *key, *title, *detail, *symbol, *tint, *where;
-} DPItem;
-
-DPItem DPPatchItem(DPPatch *patch);
 void DPForEachOption(DPPatch *patch, void (^body)(DPPatch *option));
 NSString *DPWhyDisabled(DPPatch *patch);
 NSString *DPWhyHidden(DPPatch *patch);
-NSURL *DPWikiURL(DPItem item);
+NSString *DPWhyHiddenBy(DPPatch *disabler);
+NSURL *DPWikiURL(DPPatch *patch);
 
 @interface DPPreviewView : DPFillView
 - (instancetype)initWithKey:(NSString *)key;
@@ -52,7 +46,7 @@ NSURL *DPWikiURL(DPItem item);
 @end
 
 @interface DPPageView : NSStackView
-- (instancetype)initWithItem:(DPItem)item;
+- (instancetype)initWithPatch:(DPPatch *)patch;
 - (void)sync;
 @end
 

@@ -5,7 +5,7 @@ static const NSTimeInterval DPSettleSeconds = 1;
 
 static void DPWriteReport(NSArray<NSDictionary *> *results, NSString *path) {
     NSMutableArray<NSString *> *unavailable = [NSMutableArray new];
-    for (NSUInteger i = 0; i < DPPatchCount; i++) if (DPPatches[i]->unavailable) [unavailable addObject:DPPatches[i]->key];
+    for (NSUInteger i = 0; i < DPPatchCount; i++) if (DPPatches[i]->unavailable && !DPPatches[i]->inDia) [unavailable addObject:DPPatches[i]->key];
     NSDictionary *info = NSBundle.mainBundle.infoDictionary;
     NSDictionary *report = @{
         @"dia": [NSString stringWithFormat:@"%@ (%@)", info[@"CFBundleShortVersionString"], info[@"CFBundleVersion"]],

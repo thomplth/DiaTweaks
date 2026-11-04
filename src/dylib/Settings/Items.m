@@ -1,28 +1,30 @@
 #import "Settings.h"
 
-DPItem DPPatchItem(DPPatch *patch) {
-    return (DPItem){patch, patch->key, patch->title, patch->detail, patch->symbol, patch->tint, nil};
-}
-
 void DPForEachOption(DPPatch *patch, void (^body)(DPPatch *option)) {
     for (NSUInteger i = 0; i < DPPatchCount; i++)
         if (DPRequired(DPPatches[i]) == patch) body(DPPatches[i]);
 }
 
 NSString *DPWhyDisabled(DPPatch *patch) {
+    if (patch->inDia) return @"Dia does this itself in this version.";
     if (patch->unavailable) return @"Unavailable on this Dia version.";
     DPPatch *required = DPRequired(patch);
     return required && !required->on ? [NSString stringWithFormat:@"Needs %@.", required->title] : nil;
 }
 
-NSString *DPWhyHidden(DPPatch *patch) {
-    DPPatch *disabler = DPPatchNamed(patch->disabledBy);
-    return patch->on && disabler && disabler->on ? [NSString stringWithFormat:@"Hidden while %@ is on", disabler->title] : nil;
+// An option on, like showing the hidden toolbar on hover, means it doesn't hide for good.
+NSString *DPWhyHiddenBy(DPPatch *disabler) {
+    if (!disabler || !disabler->on) return nil;
+    __block BOOL shownSometimes = NO;
+    DPForEachOption(disabler, ^(DPPatch *option) { shownSometimes |= option->on; });
+    return shownSometimes ? nil : [NSString stringWithFormat:@"Hidden while %@ is on", disabler->title];
 }
 
-NSURL *DPWikiURL(DPItem item) {
-    if (item.patch && item.patch->page) return [NSURL URLWithString:item.patch->page];
-    NSString *page = [item.title stringByReplacingOccurrencesOfString:@" " withString:@"-"];
+NSString *DPWhyHidden(DPPatch *patch) { return patch->on ? DPWhyHiddenBy(DPPatchNamed(patch->disabledBy)) : nil; }
+
+NSURL *DPWikiURL(DPPatch *patch) {
+    if (patch->page) return [NSURL URLWithString:patch->page];
+    NSString *page = [patch->title stringByReplacingOccurrencesOfString:@" " withString:@"-"];
     return [NSURL URLWithString:[@"https://github.com/JaceThings/DiaTweaks/wiki/" stringByAppendingString:page]];
 }
 
@@ -46,15 +48,18 @@ NSURL *DPWikiURL(DPItem item) {
 }
 
 - (NSView *)withHiddenIcon {
-    NSStackView *stack = [NSStackView stackViewWithViews:@[self.hiddenIcon, self]];
+    NSStackView *stack = [NSStackView new];
     stack.spacing = 8;
+    stack.detachesHiddenViews = NO;  // Before adding the icon, which a stack drops if it's already hidden.
+    [stack addArrangedSubview:self.hiddenIcon];
+    [stack addArrangedSubview:self];
     return stack;
 }
 
 - (void)sync {
     self.state = self.patch->on;
     self.enabled = !DPWhyDisabled(self.patch);
-    self.hiddenIcon.toolTip = DPWhyHidden(self.patch);
-    self.hiddenIcon.hidden = !self.hiddenIcon.toolTip;
+    DPSetHint(self.hiddenIcon, DPWhyHidden(self.patch));
+    self.hiddenIcon.hidden = !DPHintOf(self.hiddenIcon);
 }
 @end

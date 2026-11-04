@@ -2,7 +2,7 @@
 
 const CGFloat DPWindowPadding = 6;
 NSHashTable<NSView *> *DPContainers;
-static char DPRequestedFrameKey, DPRadiusKey;
+static char DPRequestedFrameKey, DPRadiusKey, DPAnimationKey;
 
 NSValue *DPRequestedFrame(NSView *container) {
     return DPGet(container, &DPRequestedFrameKey);
@@ -40,18 +40,41 @@ CGFloat DPBaseCornerRadius(NSView *container) {
     return radius ? [DPDiaValue(container, &DPRadiusKey, @(*radius)) doubleValue] : 0;
 }
 
-// The corners grow with the page so they stay concentric with the window's.
+// The corners grow with the page and the window's so they stay concentric with the window's.
 static void DPSetCornerRadius(NSView *container, CGFloat inset) {
     CGFloat *radius = DPIvar(container, "cornerRadius");
     if (!radius) return;
-    CGFloat base = DPBaseCornerRadius(container);
-    DPOverride(container, &DPRadiusKey, @(base), @(base + inset));
-    if (*radius == base + inset) return;
-    *radius = base + inset;
+    CGFloat base = DPBaseCornerRadius(container), target = base + inset + DPWindowCornerGrowth(container.window);
+    DPOverride(container, &DPRadiusKey, @(base), @(target));
+    if (*radius == target) return;
+    *radius = target;
     container.needsLayout = YES;
 }
 
+void DPAnimateLayer(NSView *container, CALayer *layer, NSString *key, id value) {
+    NSArray *animation = DPGet(container, &DPAnimationKey);
+    CFTimeInterval remaining = [animation.firstObject doubleValue] - CACurrentMediaTime();
+    id from = [layer.presentationLayer valueForKey:key];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    [layer setValue:value forKey:key];
+    [CATransaction commit];
+    if (remaining <= 0 || !from || [from isEqual:value]) return;
+    CABasicAnimation *move = [CABasicAnimation animationWithKeyPath:key];
+    move.fromValue = from;
+    move.toValue = value;
+    move.duration = remaining;
+    move.timingFunction = animation.lastObject;
+    [layer addAnimation:move forKey:key];
+}
+
 static void DPContainer_setFrame(NSView *self, SEL _cmd, NSRect frame) {
+    NSAnimationContext *context = NSAnimationContext.currentContext;
+    if (context.allowsImplicitAnimation || CATransaction.animationDuration > 0) {
+        CFTimeInterval duration = context.duration ?: CATransaction.animationDuration;
+        CAMediaTimingFunction *timing = context.timingFunction ?: [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionDefault];
+        DPSet(self, &DPAnimationKey, @[ @(CACurrentMediaTime() + duration), timing ]);
+    }
     DPSet(self, &DPRequestedFrameKey, @(frame));
     [DPContainers addObject:self];
     NSRect adjusted = DPEdgeToEdgeFrame(self, frame);
@@ -100,9 +123,9 @@ DP_PATCH(DPEdgeToEdge) {
     .key = @"edgeToEdge",
     .defaultOn = YES,
     .order = 10,
-    .title = @"Edge-to-edge web content",
+    .title = @"Edge-to-Edge Web Pages",
     .detail = @"Remove the padding between web pages and the window edge.",
-    .symbol = @"squareshape.squareshape.dotted",
+    .symbol = @"arrow.up.left.and.arrow.down.right.rectangle.fill arrow.up.left.and.arrow.down.right.square.fill",
     .tint = @"systemBlueColor",
     .section = @"Page",
     .classes = DPClasses(DPDiaContentContainer, DPDiaShadowView),

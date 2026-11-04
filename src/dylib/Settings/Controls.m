@@ -44,6 +44,15 @@ NSView *DPRow(NSView *leading, NSView *trailing) {
     return row;
 }
 
+static NSSwitch *DPSwitchIn(NSView *view) {
+    if ([view isKindOfClass:NSSwitch.class]) return (NSSwitch *)view;
+    for (NSView *subview in view.subviews) {
+        NSSwitch *found = DPSwitchIn(subview);
+        if (found) return found;
+    }
+    return nil;
+}
+
 @interface DPLinkRowView : NSView
 @property (nonatomic, copy) void (^open)(void);
 @end
@@ -52,11 +61,17 @@ NSView *DPRow(NSView *leading, NSView *trailing) {
 - (NSView *)hitTest:(NSPoint)point {
     NSView *hit = [super hitTest:point];
     BOOL control = [hit isKindOfClass:NSSwitch.class] || [hit isKindOfClass:NSButton.class];
-    return !hit || (control && ((NSControl *)hit).enabled) || hit.toolTip ? hit : self;
+    return !hit || (control && ((NSControl *)hit).enabled) || DPHintOf(hit) ? hit : self;
 }
 - (void)mouseDown:(NSEvent *)event {}
 - (void)mouseUp:(NSEvent *)event {
-    if (NSPointInRect([self convertPoint:event.locationInWindow fromView:nil], self.bounds)) self.open();
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    if (!NSPointInRect(point, self.bounds)) return;
+    NSSwitch *toggle = DPSwitchIn(self);
+    NSRect frame = [self convertRect:toggle.bounds fromView:toggle];
+    if (toggle.enabled && NSPointInRect(point, frame)) return;  // The switch flipped itself, then passed the click on.
+    if (toggle.enabled && NSPointInRect(point, NSInsetRect(frame, -10, -10))) [toggle performClick:nil];
+    else self.open();
 }
 - (BOOL)accessibilityPerformPress {
     self.open();
@@ -81,8 +96,21 @@ NSView *DPLinkRow(NSView *row, NSString *title, void (^open)(void)) {
     return link;
 }
 
-NSImageView *DPSymbol(NSString *symbol, CGFloat size, NSColor *color) {
-    NSImageView *view = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil]];
+@interface NSImage (DPPrivateSymbols)
++ (NSImage *)imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)description;
+@end
+
+// The first of `symbols` this macOS has, public or private, like the emoji face Messages uses. NSImageView throws on a
+// missing one, which crashed Settings.
+NSImageView *DPSymbol(NSString *symbols, CGFloat size, NSColor *color) {
+    NSImage *image;
+    for (NSString *symbol in [symbols componentsSeparatedByString:@" "]) {
+        image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+        if (!image && [NSImage respondsToSelector:@selector(imageWithPrivateSystemSymbolName:accessibilityDescription:)])
+            image = [NSImage imageWithPrivateSystemSymbolName:symbol accessibilityDescription:nil];
+        if (image) break;
+    }
+    NSImageView *view = image ? [NSImageView imageViewWithImage:image] : [NSImageView new];
     view.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightSemibold];
     view.contentTintColor = color;
     return view;
@@ -94,6 +122,8 @@ void DPFillStack(NSStackView *stack, NSArray<NSView *> *views) {
     for (NSView *view in views) {
         [stack addArrangedSubview:view];
         [view.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
+        // Room after each group, so a section's title sits with the rows under it.
+        if ([view isMemberOfClass:DPFillView.class]) [stack setCustomSpacing:20 afterView:view];
     }
 }
 

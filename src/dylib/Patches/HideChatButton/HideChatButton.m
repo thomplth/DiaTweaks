@@ -5,11 +5,11 @@ static BOOL DPIsChatButton(NSView *view) { return DPHasLabel(view, @"Chat with t
 DP_PATCH(DPHideChatButton) {
     .key = @"hideChatButton",
     .order = 60,
-    .title = @"Hide Chat button",
+    .title = @"Hide Chat Button",
     .detail = @"Hide the Chat button at the top right of the toolbar.",
     .symbol = @"bubble.fill",
     .tint = @"systemPurpleColor",
-    .section = @"Toolbar",
+    .section = @"Toolbar Items",
     .classes = DPClasses(DPDiaToolbar),
     .disabledBy = @"hideToolbar",
     .hides = DPIsChatButton,

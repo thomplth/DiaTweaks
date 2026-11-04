@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 
 #define DYLIB "DiaPatches.dylib"
+static NSString *const kFeedOrigin = @"https://releases.diabrowser.com/";
 static NSString *const kFeed = @"https://releases.diabrowser.com/BoostBrowser-updates.xml";
 static NSString *const kSparkle = @"http://www.andymatuschak.org/xml-namespaces/sparkle";
 static NSString *const kLocalIdentity = @"DiaPatches Local Signing";
@@ -24,7 +25,6 @@ static NSString *const kReleaseAsset = @"DiaTweaks.zip";
 static NSString *const kReleaseSignature = @"DiaTweaks.zip.sig";
 static NSString *const kReleaseSigner = @"diatweaks-release";
 static NSString *const kAgent = @"com.diapatches.update";
-static NSString *const kRelayAgent = @"com.diapatches.passwords";  // older versions relayed iCloud Passwords through it
 static NSString *const kPrefsDomain = @"com.diapatches";
 static NSString *const kDiaReleaseNotes = @"https://www.diabrowser.com/release-notes/latest";
 
@@ -426,31 +426,31 @@ static NSArray<Release *> *releasesIn(NSXMLDocument *feed) {
     return releases;
 }
 
-// Early Birds: the user is in the channel their official build was released in, and gets the newest
-// build this Mac can run from that channel or the untagged stable one.
-static Release *offer(NSArray<Release *> *releases, NSString **channel) {
-    NSString *pristine = buildOf(gPristine);
-    *channel = nil;
-    for (Release *release in releases) {
-        if (![release.build isEqualToString:pristine]) continue;
-        *channel = release.channel;
-        if (!release.channel) break;  // also released untagged: stable
-    }
+// The newest build this Mac can run. Like Sparkle, it skips items tagged with a channel.
+static Release *offer(NSArray<Release *> *releases) {
     NSOperatingSystemVersion os = NSProcessInfo.processInfo.operatingSystemVersion;
     NSString *system = [NSString stringWithFormat:@"%ld.%ld.%ld", os.majorVersion, os.minorVersion, os.patchVersion];
     Release *best;
     for (Release *release in releases)
-        if ((!release.channel || [release.channel isEqualToString:*channel]) && !newer(release.minimumOS, system)
-            && (!best || newer(release.build, best.build)))
-            best = release;
+        if (!release.channel && !newer(release.minimumOS, system) && (!best || newer(release.build, best.build))) best = release;
     return best;
 }
 
+// Early Birds is its own feed, which Dia only uses once it has let the account switch App Build to it. The dylib saves
+// the feed Dia's updater asked for; until it has, the official build's own feed.
+static NSString *diaFeed(void) {
+    // Any process of this user can write com.diapatches, and a feed served elsewhere could hold Dia back from its fixes.
+    NSString *saved = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("diaFeed"), CFSTR("com.diapatches")));
+    BOOL official = [saved isKindOfClass:NSString.class] && [saved hasPrefix:kFeedOrigin];
+    return env("DIAPATCH_FEED") ?: (official ? saved : nil) ?: infoOf(gPristine)[@"SUFeedURL"] ?: kFeed;
+}
+
 static Release *latest(int seconds, NSString **channel, NSString **problem) {
-    NSString *url = env("DIAPATCH_FEED") ?: kFeed, *output;
+    NSString *url = diaFeed(), *output;
     NSError *error;
+    *channel = [url containsString:@"/release-candidate/"] ? @"Early Birds" : nil;
     NSXMLDocument *feed = fetch(url, seconds, nil, &output) == 0 ? [[NSXMLDocument alloc] initWithXMLString:output options:0 error:&error] : nil;
-    Release *release = offer(releasesIn(feed), channel);
+    Release *release = offer(releasesIn(feed));
     if (!release)
         *problem = [NSString stringWithFormat:@"no update from %@: %@", url,
                                               feed ? @"nothing for this Mac" : error.localizedDescription ?: output];
@@ -567,6 +567,11 @@ static BOOL stageTweaks(void) {
 }
 
 static BOOL applyTweaks(void) {
+    // A release staged a while ago may since have been replaced, or overtaken by what's installed.
+    NSString *problem;
+    NSDictionary *latest = stagedRelease() ? latestTweaks(15, &problem) : nil;
+    if ([installedRelease()[@"digest"] isEqual:latest[@"digest"]]) removeTree(gStagedTweaks);
+    else if (tweaksAvailable(latest)) stageTweaks();  // if this fails, the staged release still installs
     NSString *tag = stagedRelease()[@"tag"];
     if (!tag) return removeTree(gStagedTweaks);
     NSDictionary<NSString *, NSString *> *targets = tweaksTargets();
@@ -674,6 +679,23 @@ static void removePasswordsHost(void) {
     if ([host isKindOfClass:NSDictionary.class] && [host[@"path"] isEqual:inHome(@"bin/diapatch")]) removeTree(passwordsHostManifest());
 }
 
+// launchd starts the relay when the patched Dia's 1Password extension first connects.
+static NSDictionary *relayAgent(void) {
+    NSMutableDictionary *environment = [NSMutableDictionary dictionary];
+    for (NSString *name in @[ @"DIAPATCH_HOME", @"DIAPATCH_APP" ]) environment[name] = env(name.UTF8String);
+    return DPPasswordsAgentPlist(gHome, inHome(@"bin/diapatch"), environment);
+}
+
+static BOOL relayAgentCurrent(void) { return [[NSDictionary dictionaryWithContentsOfFile:agentPlist(DPPasswordsAgent)] isEqual:relayAgent()]; }
+
+// The diapatch a self-update replaces is the one that applies it, so the new one's first host updates the agent.
+static void refreshRelayAgent(void) {
+    if (env("DIAPATCH_NO_AGENT") || relayAgentCurrent()) return;
+    FILE *lock = fopen(inHome(@"diapatch.log").fileSystemRepresentation, "a");
+    if (lock && flock(fileno(lock), LOCK_EX | LOCK_NB) == 0 && !relayAgentCurrent()) loadAgent(relayAgent());
+    if (lock) fclose(lock);
+}
+
 // Dia's own updater is switched off, so this stands in for it: it checks whether or not Dia is open, and doesn't need
 // the dylib, which safe mode or a mismatched Dia may keep from loading.
 static BOOL installAgent(void) {
@@ -690,8 +712,7 @@ static BOOL installAgent(void) {
         @"ProcessType" : @"Background",
         @"LowPriorityIO" : @YES,
     };
-    removeAgent(kRelayAgent);
-    return loadAgent(agent) && removeTree(inHome(@"passwords-helper")) && removeTree(inHome(@"passwords.sock"));
+    return loadAgent(agent) && loadAgent(relayAgent()) && removeTree(inHome(@"passwords.sock"));
 }
 
 typedef NS_ENUM(NSInteger, AutoLevel) { AutoOff, AutoNotify, AutoDownload, AutoInstall };
@@ -734,7 +755,7 @@ static BOOL purge(void) {
     }
     for (NSString *name in @[ @"bin", @DYLIB, @"patches.json", @"release.plist", @"pristine", @"staged", @"identity", @"diapatch.log", @"safe-mode.plist",
                               @".diatweaks.lock", @".incoming", @"last-check", @"passkey-helper", @"passkey-helper.lock", @"passkeys-extension",
-                              @"passkeys-extension.key", @"passwords-helper", @"passwords.sock", @"passwords-launch" ])
+                              @"passkeys-extension.key", @"passwords-helper", @"passwords.sock", @"onepassword.sock", @"passwords-launch" ])
         if (!discard(inHome(name))) return NO;
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:gHome error:NULL])
         if ([name hasPrefix:@".update-"] && !removeTree(inHome(name))) return NO;  // checkouts left by an interrupted diatweaks update
@@ -747,10 +768,11 @@ static BOOL purge(void) {
 static BOOL uninstall(BOOL purgeFiles) {
     if (appRunning()) return fail(@"Dia is running; quit it, then run `diapatch uninstall`");
     removeAgent(kAgent);
-    removeAgent(kRelayAgent);
+    removeAgent(DPPasswordsAgent);
     // The official Dia has its own passkeys and reaches iCloud Passwords itself, and nothing else should reach diapatch.
     removeTree([NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Google/Chrome/NativeMessagingHosts/com.diapatches.passkeys.json"]);
     removePasswordsHost();
+    if (!removeTree(DPCopyFolder)) return NO;
     if (!claimsOfficial(gApp)) {
         NSString *copy = [gPristine stringByAppendingString:@".restore"];
         if (!exists(gPristine)) return fail(@"no official Dia at %@; reinstall Dia from https://www.diabrowser.com", gPristine);
@@ -834,9 +856,10 @@ static const char kUsage[] =
     "                   put the official Dia back; --purge also deletes DiaPatches' files and the diatweaks command\n"
     "  status [--json]  official, installed, staged and offered versions, and the update channel\n"
     "  scheduled        what the background agent runs: check hourly, stage updates and install them while Dia is closed\n"
+    "  passwords-relay  what launchd runs when the patched Dia's 1Password extension connects\n"
     "environment: DIAPATCH_IDENTITY (codesigning identity, remembered by install), DIAPATCH_HOME,\n"
     "  DIAPATCH_APP, DIAPATCH_CACHE, DIAPATCH_FEED, DIAPATCH_RELEASES, DIATWEAKS_LINK_DIR, DIAPATCH_NO_RELAUNCH (ignore --relaunch),\n"
-    "  DIAPATCH_NO_AGENT (install leaves the background agent alone)\n";
+    "  DIAPATCH_NO_AGENT (install leaves the background agents alone)\n";
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
@@ -850,8 +873,12 @@ int main(int argc, const char *argv[]) {
         gReady = inHome(@"staged/ready");
         gStagedTweaks = inHome(@"staged/DiaTweaks");
         // Started by a browser as a native messaging host.
-        if (argc > 1 && !strncmp(argv[1], "chrome-extension://", 19))
-            return DPIsPasswordsOrigin(argv[1]) ? DPRunPasswordsHost(gHome, gApp, argc, argv) : DPRunPasskeyHost(gHome);
+        if (argc > 1 && !strncmp(argv[1], "chrome-extension://", 19)) {
+            if (!DPIsPasswordsOrigin(argv[1])) return DPRunPasskeyHost(gHome);
+            refreshRelayAgent();
+            return DPRunPasswordsHost(gHome, gApp, argc, argv);
+        }
+        if (argc > 1 && !strcmp(argv[1], "passwords-relay")) return DPRunPasswordsRelay(gHome, gApp);
 
         NSString *command = argc > 1 ? @(argv[1]) : @"";
         NSArray<NSString *> *allowed = @{

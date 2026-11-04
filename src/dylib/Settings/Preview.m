@@ -31,7 +31,7 @@ static NSArray<NSString *> *DPPreviewNames(NSString *key) {
     NSString *layout = DPTabLayout(), *other = [layout isEqual:@"vertical"] ? @"horizontal" : @"vertical";
     NSMutableArray<NSString *> *names = [NSMutableArray new];
     for (NSString *prefix in @[layout, other])
-        for (NSString *ext in @[@"mp4", @"png"]) [names addObject:[NSString stringWithFormat:@"%@-%@.%@", prefix, key, ext]];
+        for (NSString *suffix in @[@"-onoff.webp", @".mp4", @".png"]) [names addObject:[NSString stringWithFormat:@"%@-%@%@", prefix, key, suffix]];
     return names;
 }
 
@@ -63,7 +63,8 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     AVPlayer *_player;
     AVPlayerItemVideoOutput *_output;
     CADisplayLink *_link;
-    NSTextField *_placeholder;
+    NSArray *_states;
+    NSTimer *_flip;
 }
 
 + (void)preload {
@@ -80,12 +81,7 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
 - (instancetype)initWithKey:(NSString *)key {
     if (!(self = [super initWithFrame:NSZeroRect])) return nil;
     _key = key;
-    _placeholder = DPLabel(@"No preview yet", 12, NSFontWeightRegular, NSColor.tertiaryLabelColor);
-    _placeholder.translatesAutoresizingMaskIntoConstraints = NO;
-    _placeholder.hidden = YES;
-    [self addSubview:_placeholder];
-    [_placeholder.centerXAnchor constraintEqualToAnchor:self.centerXAnchor].active = YES;
-    [_placeholder.centerYAnchor constraintEqualToAnchor:self.centerYAnchor].active = YES;
+    self.hidden = YES;  // A tweak without a preview on the wiki goes without one.
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(load) name:DPTabLayoutMayHaveChanged object:nil];
     [self load];
     return self;
@@ -118,15 +114,26 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     [_player pause];
     _player = nil;
     _output = nil;
+    _states = nil;
     [self updatePlayback];
     _media = nil;
     _shown = file;
-    _placeholder.hidden = file != nil;
+    self.hidden = !file;
     if (!file) return;
     _media = [CALayer layer];
     _media.contentsGravity = kCAGravityResizeAspectFill;
     _media.frame = self.bounds;
     [self.layer addSublayer:_media];
+    // An on/off preview is one image with the tweak off above it on, shown a half at a time.
+    if ([file.lastPathComponent hasSuffix:@"-onoff.webp"]) {
+        CGImageRef image = [[[NSImage alloc] initWithContentsOfURL:file] CGImageForProposedRect:NULL context:nil hints:nil];
+        size_t width = CGImageGetWidth(image), half = CGImageGetHeight(image) / 2;
+        _states = @[ (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, 0, width, half)),
+                     (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, half, width, half)) ];
+        [self showState];
+        [self updatePlayback];
+        return;
+    }
     if (![file.pathExtension isEqualToString:@"mp4"]) {
         _media.contents = [[NSImage alloc] initWithContentsOfURL:file];
         return;
@@ -153,11 +160,28 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     [self updatePlayback];
 }
 
+// Off on even seconds and on on odd ones, so every preview flips at the same moment.
+- (void)showState {
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _media.contents = _states[(long)NSDate.date.timeIntervalSince1970 % 2];
+    [CATransaction commit];
+}
+
 // Otherwise a covered, hidden or closed Settings window keeps decoding video nobody sees.
 - (void)updatePlayback {
     [_link invalidate];
     _link = nil;
-    if (!(self.window.occlusionState & NSWindowOcclusionStateVisible) || !_player) return [_player pause];
+    [_flip invalidate];
+    _flip = nil;
+    BOOL visible = self.window.occlusionState & NSWindowOcclusionStateVisible;
+    if (visible && _states) {
+        [self showState];
+        NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+        _flip = [[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSince1970:floor(now) + 1] interval:1 target:self selector:@selector(showState) userInfo:nil repeats:YES];
+        [NSRunLoop.mainRunLoop addTimer:_flip forMode:NSRunLoopCommonModes];
+    }
+    if (!visible || !_player) return [_player pause];
     _link = [self displayLinkWithTarget:self selector:@selector(drawFrame)];
     [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     [_player play];

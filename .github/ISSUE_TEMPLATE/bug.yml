@@ -17,13 +17,42 @@ body:
       label: Which patch?
       multiple: true
       options:
-        - Edge-to-edge web content
-        - Square corners by the sidebar
-        - Hide toolbar
-        - Hide sidebar button
-        - Hide Chat button
-        - Hide Chats button
-        - Hide recent tabs button
+        - Edge-to-Edge Web Pages
+        - Square Corners Next to Sidebar
+        - Hide Toolbar
+        - Show Toolbar on Hover
+        - Show Toolbar on New Tabs
+        - Show Toolbar with Sidebar
+        - Show Toast When Copying URL
+        - Show Toolbar When Copying URL
+        - Hide Site Color in Tab Bar
+        - Always Show Address Field
+        - Hide Chat Button
+        - Hide Sidebar Button
+        - Tidy Tabs
+        - Profile Emoji
+        - Translucent Sidebar
+        - Compact Sidebar Header
+        - Hide Chats Button
+        - Hide Pinned Tab Border
+        - Hide Recent Tabs Button
+        - Don’t Open Downloads List
+        - Close Tabs from Tab Switcher
+        - Compact Command Bar
+        - Compact with Chat Usage Too
+        - Open New Tabs in Command Bar
+        - Blur Page Behind
+        - Darken Page Behind
+        - Remember What You Typed
+        - Hide Upgrade Banner
+        - Window Material
+        - Keep Windows Active
+        - macOS 26 Window Corners
+        - Hide Window Controls
+        - Allow 1Password
+        - Allow iCloud Passkeys
+        - Allow iCloud Passwords
+        - Group Tabs by Domain
         - Patches pane in Settings
         - Installing, updating or restoring
         - Not sure

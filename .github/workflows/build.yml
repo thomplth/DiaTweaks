@@ -14,4 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: make
+      # The wiki goes live after the code it documents merges, so a missing page warns instead of failing.
       - run: scripts/check-tweak-docs
+        continue-on-error: true
