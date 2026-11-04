@@ -21,7 +21,7 @@ build/diapatch: $(wildcard src/diapatch/*.[hm]) $(RELEASE_SIGNERS) | build
 	clang $(CFLAGS) -framework AppKit -framework CoreGraphics -framework Security -Wl,-sectcreate,__TEXT,__signers,$(RELEASE_SIGNERS) -o $@ $(filter %.m,$^)
 
 build/DiaPatchesSwift.o: $(DYLIB_SWIFT) | build
-	swiftc $(SWIFTFLAGS) -emit-object -o $@ $^
+	xcrun swiftc $(SWIFTFLAGS) -emit-object -o $@ $^
 
 # The dylib only runs the diapatch it was built with.
 build/DiaPatches.dylib: $(DYLIB_SOURCES) build/DiaPatchesSwift.o $(wildcard $(PASSKEYS)/*) build/diapatch | build
