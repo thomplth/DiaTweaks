@@ -541,7 +541,7 @@ static void DPPopover_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPPopover_viewDidMoveToWindow, self);
     DPCommandBarOverlay *overlay = DPGet(self, &DPOverlayKey);
     if (overlay) return (void)DPDismissCommandBar(overlay);
-    if (!self.window || DPToolbarShowing(self.window)) return;
+    if (!DPCommandBar.on || !self.window || DPToolbarShowing(self.window)) return;
     overlay = DPLiftBar(self, [DPScriptWindow(self.window) valueForKey:@"activeTab"]);
     if (overlay) DPShowWhenBuilt(overlay);
 }
@@ -549,7 +549,7 @@ static void DPPopover_viewDidMoveToWindow(NSView *self, SEL _cmd) {
 static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPContentPane_viewDidMoveToWindow, self);
     __weak NSWindow *window = self.window;
-    if (!window) return;
+    if (!window || !DPCommandBar.on) return;
     DPNoteActiveTab(window);
     dispatch_async(dispatch_get_main_queue(), ^{ DPCloseLeftBlank(window); });
 }
@@ -557,9 +557,8 @@ static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {
 static void DPNewTabPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPNewTabPage_viewDidMoveToWindow, self);
     NSWindow *window = self.window;
-    if (!window) return;
+    if (!window || !DPCommandBar.on) return;
     DPNoteActiveTab(window);
-    if (!DPCommandBar.on) return;
     NSString *active = DPActiveTabID(window), *previous = DPPreviousTabID(window);
     NSMutableSet<NSString *> *blanks = DPBlanks(window);
     DPCommandBarOverlay *overlay = DPGet(window, &DPOverlayKey);
