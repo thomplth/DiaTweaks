@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 tag=$1
 repo=${GITHUB_REPOSITORY:-thomplth/DiaTweaks}
 wiki=JaceThings/DiaTweaks  # forks don't get a copy of the wiki
-previous=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
+previous=$(git describe --tags --abbrev=0 --first-parent "$tag^" 2>/dev/null || true)
 range=${previous:+$previous..}$tag
 
 # An annotated tag's message is the announcement: git tag -a v1.2.0 -m "…"
