@@ -33,25 +33,20 @@ static void DPNoteVisibility(id contents, long visibility) {
 static id DPWebContents_init(id self, SEL _cmd, void *native) {
     id contents = DPCallOriginal(DPWebContents_init, self, native);
     if (contents) [DPHiddenSince setObject:NSDate.date forKey:contents];
-    DPScheduleTabRefresh();
+    DPRequestTabStates();
     return contents;
 }
 
 static void DPWebContents_setVisibility(id self, SEL _cmd, long visibility) {
     DPCallOriginal(DPWebContents_setVisibility, self, visibility);
     DPNoteVisibility(self, visibility);
-    DPScheduleTabRefresh();
+    DPRequestTabStates();
 }
 
 static void DPWebContents_setUIDelegate(id self, SEL _cmd, id delegate) {
     DPCallOriginal(DPWebContents_setUIDelegate, self, delegate);
     if (delegate) [DPUIDelegates setObject:delegate forKey:self];
     else [DPUIDelegates removeObjectForKey:self];
-}
-
-static void DPWebContents_setState(id self, SEL _cmd, long state) {
-    DPCallOriginal(DPWebContents_setState, self, state);
-    DPScheduleTabRefresh();
 }
 
 static void DPSetKept(id contents, DPKeepReason reason, BOOL kept) {
@@ -94,11 +89,10 @@ static BOOL DPIsInUse(id contents) {
 }
 
 static BOOL DPCanDiscard(id contents) {
+    if (DPLongOf(contents, "visibility") != DPVisibilityHidden || DPBoolOf(contents, "hasFocus") || DPBoolOf(contents, "isLoading")
+        || DPBoolOf(contents, "isFullscreen") || DPBoolOf(contents, "hadFormOrUserEdits") || DPBoolOf(contents, "hasDirtyTextField")) return NO;
     NSString *url = [DPObjectOf(contents, "url") description];
-    return DPLongOf(contents, "state") == DPWebContentsAlive && DPLongOf(contents, "visibility") == DPVisibilityHidden
-        && !DPBoolOf(contents, "hasFocus") && !DPBoolOf(contents, "isLoading") && !DPBoolOf(contents, "isFullscreen")
-        && !DPBoolOf(contents, "hadFormOrUserEdits") && !DPBoolOf(contents, "hasDirtyTextField")
-        && url.length && !DPIsKeptSite(url);
+    return url.length && !DPIsKeptSite(url);
 }
 
 // Lowering the timeouts in WebContentLifecycleController's config instead changed no tab's state in about 9 minutes at a
@@ -106,7 +100,8 @@ static BOOL DPCanDiscard(id contents) {
 void DPDiscardIdleTabs(NSTimeInterval limit) {
     for (id contents in DPHiddenSince.keyEnumerator.allObjects) {
         NSDate *hidden = [DPHiddenSince objectForKey:contents];
-        if (DPIsInUse(contents) && ![hidden isEqual:NSDate.distantFuture]) {
+        if (DPLongOf(contents, "state") != DPWebContentsAlive || [hidden isEqual:NSDate.distantFuture]) continue;
+        if (DPIsInUse(contents)) {
             [DPHiddenSince setObject:NSDate.date forKey:contents];
             continue;
         }
@@ -122,7 +117,6 @@ void DPInstallDiscarder(void) {
     DPKeepReasons = [NSMapTable weakToStrongObjectsMapTable];
     DPHook(DPDiaWebContents, sel_registerName("initWithWebContents:"), (IMP)DPWebContents_init);
     DPHook(DPDiaWebContents, sel_registerName("setVisibility:"), (IMP)DPWebContents_setVisibility);
-    DPHook(DPDiaWebContents, sel_registerName("setState:"), (IMP)DPWebContents_setState);
     DPHook(DPDiaWebContents, sel_registerName("setUIDelegate:"), (IMP)DPWebContents_setUIDelegate);
     DPHook(DPDiaWebContentDelegate, sel_registerName("webContents:pipControllerCreated:"), (IMP)DPDelegate_pipCreated);
     DPHook(DPDiaWebContentDelegate, sel_registerName("webContentsPiPControllerDestroyed:"), (IMP)DPDelegate_pipDestroyed);

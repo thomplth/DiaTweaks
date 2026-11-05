@@ -25,6 +25,12 @@ private func entries(_ collection: Any?) -> [Any] {
     return Mirror(reflecting: collection).children.map(\.value)
 }
 
+private func lastEntry(_ collection: Any?) -> Any? {
+    guard let collection = collection.flatMap(unwrapped) else { return nil }
+    let children = Mirror(reflecting: collection).children
+    return children.isEmpty ? nil : children.dropFirst(children.count - 1).first?.value
+}
+
 private func rawValue(_ identifier: Any?) -> String? {
     field(identifier, "rawValue") as? String
 }
@@ -54,7 +60,7 @@ public func DPLoadedPaneStates() -> NSDictionary {
         for (_, context) in dictionaryPairs(field(window, "windowBrowserContextControllers")) {
             var recorded: [String: String] = [:]
             for (pane, history) in dictionaryPairs(field(context, "lifecycleHistory.stateHistory")) {
-                if let id = rawValue(pane), let last = entries(field(history, "entries")).last,
+                if let id = rawValue(pane), let last = lastEntry(field(history, "entries")),
                     let state = field(last, "value") {
                     recorded[id] = String(describing: state)
                 }

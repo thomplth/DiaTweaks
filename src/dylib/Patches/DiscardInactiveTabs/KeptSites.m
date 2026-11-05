@@ -1,6 +1,7 @@
 #import "DiscardInactiveTabs.h"
 
 static NSArray<NSRegularExpression *> *DPKeptSites;
+static NSCache<NSString *, NSNumber *> *DPKeptByURL;
 
 static NSArray<NSString *> *DPBehaviorFiles(void) {
     NSFileManager *files = NSFileManager.defaultManager;
@@ -46,7 +47,12 @@ BOOL DPIsKeptSite(NSString *url) {
     if (!DPKeptSites.count) DPKeptSites = DPLoadKeptSites();
     // Without rules, Slack or Gmail could lose their state: keeping every tab is the safer failure.
     if (!DPKeptSites.count) return YES;
+    if (!DPKeptByURL) DPKeptByURL = [NSCache new];
+    NSNumber *known = [DPKeptByURL objectForKey:url];
+    if (known) return known.boolValue;
+    BOOL kept = NO;
     for (NSRegularExpression *site in DPKeptSites)
-        if ([site firstMatchInString:url options:0 range:NSMakeRange(0, url.length)]) return YES;
-    return NO;
+        if ((kept = [site firstMatchInString:url options:0 range:NSMakeRange(0, url.length)] != nil)) break;
+    [DPKeptByURL setObject:@(kept) forKey:url];
+    return kept;
 }

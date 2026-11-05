@@ -2,7 +2,6 @@
 
 static const NSTimeInterval DPDiscardCheckInterval = 60;
 static NSTimer *DPCheckTimer;
-static BOOL DPWorkScheduled, DPRefreshAllScheduled;
 
 static NSMenu *DPDiscardChoices(void) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Discard After"];
@@ -15,41 +14,10 @@ static NSMenu *DPDiscardChoices(void) {
     return menu;
 }
 
-static void DPRefreshIfActive(void) {
-    if (DPDiscardInactiveTabs.on && NSApp.active) DPRefreshTabIndicators();
-}
-
-static void DPRunScheduledWork(void) {
-    BOOL refreshAll = DPRefreshAllScheduled;
-    DPWorkScheduled = DPRefreshAllScheduled = NO;
-    if (!DPDiscardInactiveTabs.on || !NSApp.active) return;
-    if (refreshAll) DPRefreshTabIndicators();
-    else DPDressStaleTabViews();
-}
-
-static void DPScheduleWork(void) {
-    if (DPWorkScheduled) return;
-    DPWorkScheduled = YES;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), dispatch_get_main_queue(), ^{ DPRunScheduledWork(); });
-}
-
-void DPScheduleTabRefresh(void) {
-    if (!DPDiscardInactiveTabs.on) return;
-    DPRefreshAllScheduled = YES;
-    DPScheduleWork();
-}
-
-// Every row that scrolls into view lands here, and a full refresh walks all windows' views: dressing just this row
-// keeps scrolling smooth.
-static void DPScheduleTabViewDress(NSView *view) {
-    if (!DPDiscardInactiveTabs.on) return;
-    DPMarkTabViewStale(view);
-    DPScheduleWork();
-}
-
 static void DPCheckIdleTabs(void) {
     DPDiscardIdleTabs(DPChoice(&DPDiscardInactiveTabs).integerValue * 60);
-    DPRefreshIfActive();
+    DPRequestTabStates();
+    if (NSApp.active) DPSweepTabViews();
 }
 
 static void DPApplyDiscardInactiveTabs(DPPatch *patch) {
@@ -66,32 +34,36 @@ static void DPApplyDiscardInactiveTabs(DPPatch *patch) {
 
 static void DPTabRow_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPTabRow_viewDidMoveToWindow, self);
-    DPScheduleTabViewDress(self);
+    DPTrackTabView(self);
 }
 
 static void DPTabRow_prepareForReuse(NSView *self, SEL _cmd) {
     DPCallOriginal(DPTabRow_prepareForReuse, self);
-    DPScheduleTabViewDress(self);
+    DPTrackTabView(self);
 }
 
 static void DPDockItem_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPDockItem_viewDidMoveToWindow, self);
-    DPScheduleTabViewDress(self);
+    DPTrackTabView(self);
 }
 
 static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPContentPane_viewDidMoveToWindow, self);
-    DPScheduleTabRefresh();
+    DPRequestTabStates();
 }
 
 static void DPInstallDiscardInactiveTabs(void) {
+    DPInstallTabTracking();
     DPInstallDiscarder();
     DPOnLaunch(^{ DPApplyDiscardInactiveTabs(&DPDiscardInactiveTabs); });
     DPHook(DPDiaTabView, @selector(viewDidMoveToWindow), (IMP)DPTabRow_viewDidMoveToWindow);
     DPHook(DPDiaTabView, sel_registerName("prepareForReuse"), (IMP)DPTabRow_prepareForReuse);
     DPHook(DPDiaPinnedTab, @selector(viewDidMoveToWindow), (IMP)DPDockItem_viewDidMoveToWindow);
     DPHook(DPDiaContentPane, @selector(viewDidMoveToWindow), (IMP)DPContentPane_viewDidMoveToWindow);
-    [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *_) { DPScheduleTabRefresh(); }];
+    [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *_) {
+        DPRequestTabStates();
+        DPSweepTabViews();
+    }];
 }
 
 static NSString *DPVerifyDiscardInactiveTabs(DPPatch *patch) { return DPVerifyTabIndicators(); }
