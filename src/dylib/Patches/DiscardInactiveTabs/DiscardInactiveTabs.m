@@ -2,7 +2,7 @@
 
 static const NSTimeInterval DPDiscardCheckInterval = 60;
 static NSTimer *DPCheckTimer;
-static BOOL DPRefreshScheduled;
+static BOOL DPWorkScheduled, DPRefreshAllScheduled;
 
 static NSMenu *DPDiscardChoices(void) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Discard After"];
@@ -16,14 +16,35 @@ static NSMenu *DPDiscardChoices(void) {
 }
 
 static void DPRefreshIfActive(void) {
-    DPRefreshScheduled = NO;
     if (DPDiscardInactiveTabs.on && NSApp.active) DPRefreshTabIndicators();
 }
 
+static void DPRunScheduledWork(void) {
+    BOOL refreshAll = DPRefreshAllScheduled;
+    DPWorkScheduled = DPRefreshAllScheduled = NO;
+    if (!DPDiscardInactiveTabs.on || !NSApp.active) return;
+    if (refreshAll) DPRefreshTabIndicators();
+    else DPDressStaleTabViews();
+}
+
+static void DPScheduleWork(void) {
+    if (DPWorkScheduled) return;
+    DPWorkScheduled = YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), dispatch_get_main_queue(), ^{ DPRunScheduledWork(); });
+}
+
 void DPScheduleTabRefresh(void) {
-    if (!DPDiscardInactiveTabs.on || DPRefreshScheduled) return;
-    DPRefreshScheduled = YES;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), dispatch_get_main_queue(), ^{ DPRefreshIfActive(); });
+    if (!DPDiscardInactiveTabs.on) return;
+    DPRefreshAllScheduled = YES;
+    DPScheduleWork();
+}
+
+// Every row that scrolls into view lands here, and a full refresh walks all windows' views: dressing just this row
+// keeps scrolling smooth.
+static void DPScheduleTabViewDress(NSView *view) {
+    if (!DPDiscardInactiveTabs.on) return;
+    DPMarkTabViewStale(view);
+    DPScheduleWork();
 }
 
 static void DPCheckIdleTabs(void) {
@@ -45,17 +66,17 @@ static void DPApplyDiscardInactiveTabs(DPPatch *patch) {
 
 static void DPTabRow_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPTabRow_viewDidMoveToWindow, self);
-    DPScheduleTabRefresh();
+    DPScheduleTabViewDress(self);
 }
 
 static void DPTabRow_prepareForReuse(NSView *self, SEL _cmd) {
     DPCallOriginal(DPTabRow_prepareForReuse, self);
-    DPScheduleTabRefresh();
+    DPScheduleTabViewDress(self);
 }
 
 static void DPDockItem_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPDockItem_viewDidMoveToWindow, self);
-    DPScheduleTabRefresh();
+    DPScheduleTabViewDress(self);
 }
 
 static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {

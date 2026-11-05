@@ -10,6 +10,8 @@ BOOL DPRowHasNoCloseButton(NSView *row);
 
 void DPRefreshTabIndicators(void);
 void DPScheduleTabRefresh(void);
+void DPMarkTabViewStale(NSView *view);
+void DPDressStaleTabViews(void);
 void DPClearTabIndicators(void);
 NSString *DPVerifyTabIndicators(void);
 

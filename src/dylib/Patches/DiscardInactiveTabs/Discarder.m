@@ -33,12 +33,14 @@ static void DPNoteVisibility(id contents, long visibility) {
 static id DPWebContents_init(id self, SEL _cmd, void *native) {
     id contents = DPCallOriginal(DPWebContents_init, self, native);
     if (contents) [DPHiddenSince setObject:NSDate.date forKey:contents];
+    DPScheduleTabRefresh();
     return contents;
 }
 
 static void DPWebContents_setVisibility(id self, SEL _cmd, long visibility) {
     DPCallOriginal(DPWebContents_setVisibility, self, visibility);
     DPNoteVisibility(self, visibility);
+    DPScheduleTabRefresh();
 }
 
 static void DPWebContents_setUIDelegate(id self, SEL _cmd, id delegate) {

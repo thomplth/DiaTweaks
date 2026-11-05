@@ -5,6 +5,8 @@ typedef NS_ENUM(NSInteger, DPTabLook) { DPTabLookNormal, DPTabLookDimmed, DPTabL
 static const CGFloat DPDimmedAlpha = 0.55;
 static const CGFloat DPRingOutset = 3;
 static const void *DPRingKey = &DPRingKey;
+static NSDictionary *DPPaneStates;
+static NSHashTable<NSView *> *DPStaleTabViews;
 
 static void DPSetRing(NSView *icon, BOOL shown) {
     CAShapeLayer *ring = DPGet(icon, DPRingKey);
@@ -27,10 +29,12 @@ static void DPSetRing(NSView *icon, BOOL shown) {
         DPSet(icon, DPRingKey, ring);
     }
     CGRect frame = CGRectInset(icon.bounds, -DPRingOutset, -DPRingOutset);
-    ring.frame = frame;
-    CGPathRef path = CGPathCreateWithEllipseInRect(CGRectMake(0, 0, frame.size.width, frame.size.height), NULL);
-    ring.path = path;
-    CGPathRelease(path);
+    if (!CGRectEqualToRect(ring.frame, frame)) {
+        ring.frame = frame;
+        CGPathRef path = CGPathCreateWithEllipseInRect(CGRectMake(0, 0, frame.size.width, frame.size.height), NULL);
+        ring.path = path;
+        CGPathRelease(path);
+    }
     [icon.effectiveAppearance performAsCurrentDrawingAppearance:^{
         ring.strokeColor = NSColor.secondaryLabelColor.CGColor;
     }];
@@ -85,25 +89,45 @@ static DPTabLook DPLookOfDockItem(NSView *item, NSDictionary *states) {
     }
 }
 
-static void DPDressTabs(DPTabLook (^lookOfRow)(NSView *), DPTabLook (^lookOfItem)(NSView *)) {
-    for (NSView *row in DPFindViews(DPDiaTabView)) {
-        NSView *content = DPRowContent(row);
-        NSView *icon = DPIconIn(content);
-        if (content && icon) DPDress(content, icon, lookOfRow(row));
-    }
-    for (NSView *item in DPFindViews(DPDiaPinnedTab)) {
-        NSView *icon = DPIconIn(item);
-        if (icon) DPDress(icon, icon, lookOfItem(item));
-    }
+static void DPDressRow(NSView *row, DPTabLook look) {
+    NSView *content = DPRowContent(row);
+    NSView *icon = DPIconIn(content);
+    if (content && icon) DPDress(content, icon, look);
+}
+
+static void DPDressDockItem(NSView *item, DPTabLook look) {
+    NSView *icon = DPIconIn(item);
+    if (icon) DPDress(icon, icon, look);
 }
 
 void DPRefreshTabIndicators(void) {
-    NSDictionary *states = DPLoadedPaneStates();
-    DPDressTabs(^(NSView *row) { return DPLookOfRow(row, states); }, ^(NSView *item) { return DPLookOfDockItem(item, states); });
+    DPPaneStates = DPLoadedPaneStates();
+    [DPStaleTabViews removeAllObjects];
+    for (NSView *row in DPFindViews(DPDiaTabView)) DPDressRow(row, DPLookOfRow(row, DPPaneStates));
+    for (NSView *item in DPFindViews(DPDiaPinnedTab)) DPDressDockItem(item, DPLookOfDockItem(item, DPPaneStates));
+}
+
+void DPMarkTabViewStale(NSView *view) {
+    if (!DPStaleTabViews) DPStaleTabViews = [NSHashTable weakObjectsHashTable];
+    [DPStaleTabViews addObject:view];
+}
+
+void DPDressStaleTabViews(void) {
+    if (!DPPaneStates) return DPRefreshTabIndicators();
+    NSArray<NSView *> *views = DPStaleTabViews.allObjects;
+    [DPStaleTabViews removeAllObjects];
+    for (NSView *view in views) {
+        if (!view.window) continue;
+        if (DPIsKind(view, DPDiaTabView)) DPDressRow(view, DPLookOfRow(view, DPPaneStates));
+        else DPDressDockItem(view, DPLookOfDockItem(view, DPPaneStates));
+    }
 }
 
 void DPClearTabIndicators(void) {
-    DPDressTabs(^(NSView *_) { return DPTabLookNormal; }, ^(NSView *_) { return DPTabLookNormal; });
+    DPPaneStates = nil;
+    [DPStaleTabViews removeAllObjects];
+    for (NSView *row in DPFindViews(DPDiaTabView)) DPDressRow(row, DPTabLookNormal);
+    for (NSView *item in DPFindViews(DPDiaPinnedTab)) DPDressDockItem(item, DPTabLookNormal);
 }
 
 NSString *DPVerifyTabIndicators(void) {
