@@ -70,6 +70,10 @@ id DPCommandBrowser(void) {
     return ready.count == 1 ? ready[0] : nil;
 }
 
+NSArray *DPTrackedBrowsers(void) {
+    return DPBrowsers.allObjects;
+}
+
 id DPGroupingDelegate(id browser) {
     return [DPDelegateByBrowser objectForKey:browser];
 }

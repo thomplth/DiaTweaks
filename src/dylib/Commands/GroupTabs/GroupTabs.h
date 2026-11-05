@@ -6,6 +6,7 @@ void DPInstallGroupTabs(void);
 
 // Tracking.m: what the hooks remembered.
 id DPCommandBrowser(void);  // The front window's browser, or the only one.
+NSArray *DPTrackedBrowsers(void);
 id DPGroupingDelegate(id browser);
 NSArray *DPTrackedContents(id browser);
 long long DPSessionOf(id contents);

@@ -12,7 +12,7 @@ Turn tweaks on and off in **Dia → Settings → Patches**, or with the `diatwea
 
 [See all tweaks →](https://github.com/JaceThings/DiaTweaks/wiki)
 
-This fork adds [Allow iCloud Passwords](docs/tweaks/Allow-iCloud-Passwords.md), [Don't open a new tab at launch](docs/tweaks/Dont-open-a-new-tab-at-launch.md), [Hide sidebar footer](docs/tweaks/Hide-sidebar-footer.md), [Rename shortcuts](docs/tweaks/Rename-shortcuts.md) and [Reopen windows on their Spaces](docs/tweaks/Reopen-windows-on-their-Spaces.md).
+This fork adds [Allow iCloud Passwords](docs/tweaks/Allow-iCloud-Passwords.md), [Color new tab groups](docs/tweaks/Color-new-tab-groups.md), [Don't open a new tab at launch](docs/tweaks/Dont-open-a-new-tab-at-launch.md), [Hide sidebar footer](docs/tweaks/Hide-sidebar-footer.md), [Rename shortcuts](docs/tweaks/Rename-shortcuts.md) and [Reopen windows on their Spaces](docs/tweaks/Reopen-windows-on-their-Spaces.md).
 
 ## Install
 
