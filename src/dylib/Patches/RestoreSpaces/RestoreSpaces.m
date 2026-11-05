@@ -124,37 +124,46 @@ static void DPPlace(NSWindow *window) {
     DPSaveSpacesSoon();
 }
 
-static void DPPlaceSoon(NSWindow *window) {
-    __weak NSWindow *weakWindow = window;
-    dispatch_async(dispatch_get_main_queue(), ^{ DPPlace(weakWindow); });
-}
-
 static const NSTimeInterval DPUnplacedCheckInterval = 0.25;
+static const NSTimeInterval DPIdentifierSettleTime = 10;
 static const NSTimeInterval DPUnplacedCheckLimit = 120;
+static BOOL DPCheckingUnplaced;
 
-// Showing a window calls the hooks below, but Dia can give a shown window its identifier later without any of them.
-static void DPPlaceUnplacedWindows(NSDate *since) {
+// Showing a window calls the hooks below, but Dia can give a shown window its identifier later, or swap a temporary one
+// for it, without any of them. Windows held back behind the keychain prompt aren't visible, so a check that started at
+// launch has already ended by the time they appear: each showing starts one again.
+static void DPCheckUnplacedWindows(NSDate *since) {
     BOOL waiting = NO;
     for (NSWindow *window in DPBrowserByWindow.keyEnumerator.allObjects) {
         DPPlace(window);
         waiting |= window.visible && !DPIsPlaced(window);
     }
-    if (!waiting || !DPRestoreSpaces.on || -since.timeIntervalSinceNow > DPUnplacedCheckLimit) return;
+    NSTimeInterval elapsed = -since.timeIntervalSinceNow;
+    if (!DPRestoreSpaces.on || elapsed > DPUnplacedCheckLimit || (!waiting && elapsed > DPIdentifierSettleTime)) {
+        DPCheckingUnplaced = NO;
+        return;
+    }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(DPUnplacedCheckInterval * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        DPPlaceUnplacedWindows(since);
+        DPCheckUnplacedWindows(since);
     });
+}
+
+static void DPStartCheckingUnplaced(void) {
+    if (DPCheckingUnplaced) return;
+    DPCheckingUnplaced = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{ DPCheckUnplacedWindows(NSDate.date); });
 }
 
 static void DPBrowser_setWindow(id self, SEL _cmd, NSWindow *window) {
     DPCallOriginal(DPBrowser_setWindow, self, window);
     if (!window) return;
     [DPBrowserByWindow setObject:self forKey:window];
-    dispatch_async(dispatch_get_main_queue(), ^{ DPPlaceUnplacedWindows(NSDate.date); });
+    DPStartCheckingUnplaced();
 }
 
 static void DPWindow_orderWindow(NSWindow *self, SEL _cmd, NSWindowOrderingMode place, NSInteger otherWindow) {
     DPCallOriginal(DPWindow_orderWindow, self, place, otherWindow);
-    if (place != NSWindowOut && [DPBrowserByWindow objectForKey:self] && !DPIsPlaced(self)) DPPlaceSoon(self);
+    if (place != NSWindowOut && [DPBrowserByWindow objectForKey:self] && !DPIsPlaced(self)) DPStartCheckingUnplaced();
 }
 
 static void DPApplyRestoreSpaces(DPPatch *patch) {
@@ -178,7 +187,7 @@ static void DPInstallRestoreSpaces(void) {
         [center addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
             if (![DPBrowserByWindow objectForKey:note.object]) return;
             if (DPIsPlaced(note.object)) DPSaveSpacesSoon();
-            else DPPlaceSoon(note.object);
+            else DPStartCheckingUnplaced();
         }];
     [NSWorkspace.sharedWorkspace.notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification object:nil queue:nil
                                                             usingBlock:^(NSNotification *_) { DPSaveSpacesSoon(); }];
