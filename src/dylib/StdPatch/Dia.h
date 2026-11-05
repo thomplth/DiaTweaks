@@ -62,3 +62,5 @@
 #define DPDiaTabGroupView       "_TtC5TabUI12TabGroupView"
 #define DPDiaMenuBarManager     "_TtC7MenuBar32KeyEquivalentMatchingMenuManager"
 #define DPDiaHoverableButton    "_TtC5ARCUI15HoverableButton"
+#define DPDiaWebContents        "ArcWebContents"
+#define DPDiaWebContentDelegate "_TtC3ADK18WebContentChromium"
