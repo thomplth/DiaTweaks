@@ -25,7 +25,7 @@ build/DiaPatchesSwift.o: $(DYLIB_SWIFT) | build
 
 # The dylib only runs the diapatch it was built with.
 build/DiaPatches.dylib: $(DYLIB_SOURCES) build/DiaPatchesSwift.o $(wildcard $(PASSKEYS)/*) build/diapatch | build
-	clang $(CFLAGS) -Isrc/dylib -dynamiclib $(EXTENSION) -DDP_DIAPATCH_CDHASH="\"$(call CDHASH,build/diapatch)\"" -framework Security -framework AppKit -framework QuartzCore -framework AVFoundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo \
+	clang $(CFLAGS) -Isrc/dylib -dynamiclib $(EXTENSION) -DDP_DIAPATCH_CDHASH="\"$(call CDHASH,build/diapatch)\"" -framework Security -framework AppKit -framework Carbon -framework QuartzCore -framework AVFoundation -framework VideoToolbox -framework CoreMedia -framework CoreVideo \
 		-L$(SWIFT_LIB) -Wl,-rpath,/usr/lib/swift $(FOUNDATION_MODELS) -o $@ $(filter %.m %.o,$^)
 
 # The patch list for diatweaks. With DIAPATCH_MANIFEST set, the dylib writes it and exits as it loads, so diapatch never runs.
