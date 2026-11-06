@@ -64,3 +64,4 @@
 #define DPDiaHoverableButton    "_TtC5ARCUI15HoverableButton"
 #define DPDiaWebContents        "ArcWebContents"
 #define DPDiaWebContentDelegate "_TtC3ADK18WebContentChromium"
+#define DPDiaWebView            "RenderWidgetHostViewCocoa"
