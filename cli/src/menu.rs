@@ -19,8 +19,6 @@ enum Action {
     Quit,
 }
 
-/// `diatweaks` in a terminal. Esc in a screen goes back here; Esc here, or a signal anywhere, ends
-/// the session.
 pub fn run(env: &Env, ui: &Ui) -> Result<()> {
     ui.intro();
     ui.enter_menu(true);
@@ -50,7 +48,7 @@ pub fn run(env: &Env, ui: &Ui) -> Result<()> {
             Action::Quit => break,
         };
         match result {
-            // The menu would carry on with the replaced binary or a Dia without DiaTweaks.
+            // The menu would go on with a replaced binary or a Dia without DiaTweaks.
             Ok(()) if matches!(action, Action::UpdateDiaTweaks | Action::Restore) => break,
             Ok(()) => {}
             Err(err) => match err.downcast_ref::<Cancelled>() {

@@ -1,13 +1,24 @@
 #import "Settings.h"
 
+@interface DPSeparatorView : NSView
+@end
+
+@implementation DPSeparatorView
+- (BOOL)wantsUpdateLayer { return YES; }
+- (void)updateLayer { self.layer.backgroundColor = NSColor.separatorColor.CGColor; }
+- (NSSize)intrinsicContentSize { return NSMakeSize(NSViewNoIntrinsicMetric, 1); }
+// Where NSBox draws its line in the same space.
+- (NSEdgeInsets)alignmentRectInsets { return NSEdgeInsetsMake(0.5, 0, -0.5, 0); }
+@end
+
 NSView *DPGroup(NSArray<NSView *> *rows) {
     NSStackView *stack = [NSStackView new];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
     stack.spacing = 0;
     [rows enumerateObjectsUsingBlock:^(NSView *row, NSUInteger i, BOOL *_) {
         if (i > 0) {
-            NSBox *line = [NSBox new];
-            line.boxType = NSBoxSeparator;
+            DPSeparatorView *line = [DPSeparatorView new];
+            line.wantsLayer = YES;
             [stack addArrangedSubview:line];
             [line.widthAnchor constraintEqualToAnchor:stack.widthAnchor constant:-24].active = YES;
         }
@@ -44,15 +55,6 @@ NSView *DPRow(NSView *leading, NSView *trailing) {
     return row;
 }
 
-static NSSwitch *DPSwitchIn(NSView *view) {
-    if ([view isKindOfClass:NSSwitch.class]) return (NSSwitch *)view;
-    for (NSView *subview in view.subviews) {
-        NSSwitch *found = DPSwitchIn(subview);
-        if (found) return found;
-    }
-    return nil;
-}
-
 @interface DPLinkRowView : NSView
 @property (nonatomic, copy) void (^open)(void);
 @end
@@ -67,9 +69,9 @@ static NSSwitch *DPSwitchIn(NSView *view) {
 - (void)mouseUp:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     if (!NSPointInRect(point, self.bounds)) return;
-    NSSwitch *toggle = DPSwitchIn(self);
+    NSSwitch *toggle = (NSSwitch *)DPFindView(self, ^BOOL(NSView *v) { return [v isKindOfClass:NSSwitch.class]; });
     NSRect frame = [self convertRect:toggle.bounds fromView:toggle];
-    if (toggle.enabled && NSPointInRect(point, frame)) return;  // The switch flipped itself, then passed the click on.
+    if (toggle.enabled && NSPointInRect(point, frame)) return;
     if (toggle.enabled && NSPointInRect(point, NSInsetRect(frame, -10, -10))) [toggle performClick:nil];
     else self.open();
 }
@@ -100,18 +102,23 @@ NSView *DPLinkRow(NSView *row, NSString *title, void (^open)(void)) {
 + (NSImage *)imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)description;
 @end
 
-// The first of `symbols` this macOS has, public or private, like the emoji face Messages uses. NSImageView throws on a
-// missing one, which crashed Settings.
+// NSImageView throws on a missing symbol, which crashed Settings.
 NSImageView *DPSymbol(NSString *symbols, CGFloat size, NSColor *color) {
-    NSImage *image;
-    for (NSString *symbol in [symbols componentsSeparatedByString:@" "]) {
-        image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
-        if (!image && [NSImage respondsToSelector:@selector(imageWithPrivateSystemSymbolName:accessibilityDescription:)])
-            image = [NSImage imageWithPrivateSystemSymbolName:symbol accessibilityDescription:nil];
-        if (image) break;
+    static NSMutableDictionary<NSString *, id> *cache;
+    if (!cache) cache = [NSMutableDictionary new];
+    NSString *key = [NSString stringWithFormat:@"%@ %g", symbols, size];
+    NSImage *image = cache[key];
+    if (!image) {
+        for (NSString *symbol in [symbols componentsSeparatedByString:@" "]) {
+            image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
+            if (!image && [NSImage respondsToSelector:@selector(imageWithPrivateSystemSymbolName:accessibilityDescription:)])
+                image = [NSImage imageWithPrivateSystemSymbolName:symbol accessibilityDescription:nil];
+            if (image) break;
+        }
+        image = [image imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightSemibold]];
+        cache[key] = image ?: NSNull.null;
     }
-    NSImageView *view = image ? [NSImageView imageViewWithImage:image] : [NSImageView new];
-    view.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:size weight:NSFontWeightSemibold];
+    NSImageView *view = [image isKindOfClass:NSImage.class] ? [NSImageView imageViewWithImage:image] : [NSImageView new];
     view.contentTintColor = color;
     return view;
 }
@@ -122,7 +129,6 @@ void DPFillStack(NSStackView *stack, NSArray<NSView *> *views) {
     for (NSView *view in views) {
         [stack addArrangedSubview:view];
         [view.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
-        // Room after each group, so a section's title sits with the rows under it.
         if ([view isMemberOfClass:DPFillView.class]) [stack setCustomSpacing:20 afterView:view];
     }
 }
@@ -147,10 +153,26 @@ NSTextField *DPLabel(NSString *text, CGFloat size, NSFontWeight weight, NSColor 
 
 NSView *DPIconTile(NSString *symbol, NSColor *color) { return DPIconTileOfSize(symbol, color, 20); }
 
+static CGFloat DPLinear(CGFloat c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+
+static NSColor *DPTileFill(NSColor *color) {
+    __block NSColor *rgb;
+    [[NSAppearance appearanceNamed:NSAppearanceNameAqua] performAsCurrentDrawingAppearance:^{
+        rgb = [color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    }];
+    for (CGFloat dark = 0; dark < 1; dark += 0.01) {
+        CGFloat k = 1 - dark;
+        CGFloat luminance = 0.2126 * DPLinear(rgb.redComponent * k) + 0.7152 * DPLinear(rgb.greenComponent * k) +
+                            0.0722 * DPLinear(rgb.blueComponent * k);
+        if (1.05 / (luminance + 0.05) >= 3) return [NSColor colorWithSRGBRed:rgb.redComponent * k green:rgb.greenComponent * k blue:rgb.blueComponent * k alpha:1];
+    }
+    return NSColor.blackColor;
+}
+
 NSView *DPIconTileOfSize(NSString *symbol, NSColor *color, CGFloat size) {
     NSView *tile = [NSView new];
     tile.wantsLayer = YES;
-    tile.layer.backgroundColor = color.CGColor;
+    tile.layer.backgroundColor = DPTileFill(color).CGColor;
     tile.layer.cornerRadius = size / 4;
     tile.layer.cornerCurve = kCACornerCurveContinuous;
     NSImageView *glyph = DPSymbol(symbol, size * 0.6, NSColor.whiteColor);
@@ -166,7 +188,6 @@ NSView *DPIconTileOfSize(NSString *symbol, NSColor *color, CGFloat size) {
     return tile;
 }
 
-// An NSBox resolves its fill once, so it kept the dark one in light mode.
 @implementation DPFillView
 - (instancetype)initWithFrame:(NSRect)frame {
     if (!(self = [super initWithFrame:frame])) return nil;

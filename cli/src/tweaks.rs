@@ -30,7 +30,6 @@ pub fn list(env: &Env) -> Result<()> {
     Ok(())
 }
 
-/// `diatweaks enable` and `disable`.
 pub fn set(env: &Env, ui: &Ui, names: &[String], on: bool) -> Result<()> {
     let manifest = Manifest::load(&env.manifest())?;
     let targets = manifest.resolve(names)?;
@@ -66,7 +65,6 @@ pub fn set(env: &Env, ui: &Ui, names: &[String], on: bool) -> Result<()> {
     Ok(())
 }
 
-/// The Tweaks screen of the menu.
 pub fn menu(env: &Env, ui: &Ui) -> Result<()> {
     let manifest = Manifest::load(&env.manifest())?;
     let current = manifest.state(&Prefs::new(&env.domain));
@@ -124,7 +122,6 @@ fn hint(manifest: &Manifest, current: &[bool], index: usize) -> String {
     hint
 }
 
-/// Turning on a patch that needs another one offers to turn that on too.
 fn add_requirements(
     ui: &Ui,
     manifest: &Manifest,
@@ -155,7 +152,6 @@ fn add_requirements(
     Ok(())
 }
 
-/// What won't show the way the user might expect, for the patches this run touches.
 fn notes(manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Vec<String> {
     let changed = |index: usize| current[index] != wanted[index];
     let mut notes = Vec::new();
@@ -182,8 +178,7 @@ fn notes(manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Vec<String> 
     notes
 }
 
-/// Saves the patches whose wanted state differs from what this run started from, and leaves the
-/// rest alone in case something else changed them meanwhile. Returns what it changed.
+/// Writes only what this run changed: something else may have changed the rest meanwhile.
 fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Result<Vec<usize>> {
     let changes: Vec<usize> = (0..wanted.len())
         .filter(|&index| current[index] != wanted[index])
@@ -201,8 +196,11 @@ fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Re
 }
 
 fn where_it_shows(env: &Env) -> String {
-    if dia::safe_mode(&env.support) > 0 {
-        return "Tweaks are paused because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into();
+    match dia::safe_mode(&env.support) {
+        0 => {}
+        1 => return "Tweaks are paused because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into(),
+        _ if dia::safe_mode_parked(&env.support) => return "DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again. It stays off until the next DiaTweaks update.".into(),
+        _ => return "DiaTweaks is off because Dia kept quitting right after opening. After one launch where Dia stays open for three minutes or quits normally, the next launch brings Settings back with tweaks still paused. Turn them back on in Dia → Settings → Patches.".into(),
     }
     if !dia::is_patched(&env.app) {
         return "Dia isn't patched right now, so they won't show. Run `diatweaks update` to patch it again.".into();

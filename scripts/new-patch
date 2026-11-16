@@ -1,5 +1,4 @@
 #!/bin/sh
-# Starts a patch: scripts/new-patch HideFooButton (or make patch NAME=HideFooButton).
 set -eu
 cd "$(dirname "$0")/.."
 name="${1:-}"

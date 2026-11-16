@@ -2,8 +2,6 @@ use std::{env, ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, Result};
 
-/// Where things live. The DIAPATCH_* variables are the ones diapatch reads; DIATWEAKS_DOMAIN
-/// exists so tests can use their own settings domain.
 pub struct Env {
     pub support: PathBuf,
     pub app: PathBuf,

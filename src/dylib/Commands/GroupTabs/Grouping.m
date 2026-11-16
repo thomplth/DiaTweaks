@@ -31,34 +31,47 @@ static BOOL DPPinned(long long sid, NSString *url, NSSet<NSNumber *> *sessions, 
 static id DPGroupProperties(NSString *title) {
     Class cls = objc_getClass(DPDiaTabGroupProperties);
     id props = cls ? [cls new] : nil;
-    // No title leaves the group for Dia to name, as Tidy Tabs does.
     if (title.length && [props respondsToSelector:@selector(setTitle:)]) [props setTitle:title];
     return props;
 }
 
-// Cleared by the next key press, so Command-Z only undoes a grouping right after it.
 static void (^DPUndoGrouping)(void);
 
-void DPOfferUndo(id delegate, id browser, NSArray *ids, NSDictionary *places) {
+BOOL DPCanUndoGrouping(void) { return DPUndoGrouping != nil; }
+void DPForgetGroupingUndo(void) { DPUndoGrouping = nil; }
+
+static void DPArmUndo(void (^undo)(void)) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
             void (^undo)(void) = DPUndoGrouping;
             DPUndoGrouping = nil;
             NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl);
-            if (!undo || mods != NSEventModifierFlagCommand || ![event.charactersIgnoringModifiers isEqualToString:@"z"]) return event;
+            if (!undo || DPShortcutRecording() || mods != NSEventModifierFlagCommand || ![event.charactersIgnoringModifiers isEqualToString:@"z"]) return event;
             undo();
             return nil;
         }];
     });
+    DPUndoGrouping = undo;
+}
+
+void DPOfferUndo(id delegate, id browser, NSArray *ids, NSDictionary *places) {
     __weak id weakDelegate = delegate, weakBrowser = browser;
-    DPUndoGrouping = ^{
+    DPArmUndo(^{
         id delegate = weakDelegate, browser = weakBrowser;
         void (*ungroup)(id, SEL, id, NSArray *, void (^)(id)) = (void *)objc_msgSend;
         ungroup(delegate, @selector(browser:removeTabsFromGroupWithSessionIds:completion:), browser, ids, ^(id _) {
             if (places) dispatch_async(dispatch_get_main_queue(), ^{ DPRestorePlaces(delegate, browser, places); });
         });
-    };
+    });
+}
+
+void DPOfferRegroup(id delegate, id browser, NSArray<NSDictionary *> *ops) {
+    __weak id weakDelegate = delegate, weakBrowser = browser;
+    DPArmUndo(^{
+        id delegate = weakDelegate, browser = weakBrowser;
+        if (delegate && browser) DPRunOps(delegate, browser, ops, 0, ^{});
+    });
 }
 
 void DPRunOps(id delegate, id browser, NSArray<NSDictionary *> *ops, NSUInteger index, void (^done)(void)) {
@@ -78,8 +91,7 @@ void DPRunOps(id delegate, id browser, NSArray<NSDictionary *> *ops, NSUInteger 
     }
 }
 
-void DPGroupTabsOnce(void) {
-    id browser = DPCommandBrowser();
+static void DPGroupBrowser(id browser, NSSet<NSNumber *> *only) {
     if (!browser) return;
     id delegate = DPGroupingDelegate(browser);
     if (![delegate respondsToSelector:@selector(browser:getAllTabGroupsWithCompletion:)]) return;
@@ -91,7 +103,8 @@ void DPGroupTabsOnce(void) {
         long long sid = DPSessionOf(contents);
         NSString *url = DPText(DPMsg(contents, @selector(url)));
         NSString *domain = DPDomainKey(url);
-        if (sid <= 0 || !domain || DPPinned(sid, url, pinnedSessions, pinnedURLs, openURLs)) continue;
+        if (domain && DPGroupTabsMergeSubdomains.on) domain = DPRegistrableDomain(domain);
+        if (sid <= 0 || !domain || (only && ![only containsObject:@(sid)]) || DPPinned(sid, url, pinnedSessions, pinnedURLs, openURLs)) continue;
         [tabs addObject:@{@"session": @(sid), @"domain": domain, @"url": url}];
     }
     void (*ask)(id, SEL, id, void (^)(NSArray *)) = (void *)objc_msgSend;
@@ -108,4 +121,12 @@ void DPGroupTabsOnce(void) {
             DPRunOps(delegate, browser, ops, 0, ^{ DPOfferUndo(delegate, browser, ids, places); });
         });
     });
+}
+
+void DPGroupTabsOnce(void) { DPGroupBrowser(DPCommandBrowser(), nil); }
+
+void DPGroupSelectedTabsOnce(void) {
+    id browser = DPCommandBrowser();
+    NSSet<NSNumber *> *only = browser ? DPSelectedSessions(browser) : nil;
+    if (only.count >= 2) DPGroupBrowser(browser, only);
 }

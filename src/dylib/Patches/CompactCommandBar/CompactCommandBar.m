@@ -8,7 +8,7 @@ BOOL DPChatLocked(NSView *view) {
     return DPFindView(view, ^BOOL(NSView *v) { return [v.accessibilityLabel hasSuffix:@"only available when you have chat usage"]; }) != nil;
 }
 
-// Dia labels the buttons a moment after the command bar shows, so until then the last label decides.
+// Dia labels the buttons a moment after the bar shows, so until then the last label decides.
 static NSString *const DPChatLockedKey = @"commandBarChatLocked";
 
 static NSUserDefaults *DPCommandBarDefaults(void) {
@@ -25,10 +25,17 @@ static BOOL DPCompacts(NSView *toolbar) {
     return DPCompactWithChat.on || DPChatLocked(toolbar);
 }
 
+// The chat composer uses the same views and must not compact, in the sidebar or Dia's floating window.
+static BOOL DPOnCommandBarSurface(NSView *view) {
+    for (; view; view = view.superview)
+        if ((DPIsKind(view, DPDiaPopover) && !DPIsFloatingChat(view)) || DPIsKind(view, DPDiaNewTabPage) || DPIsKind(view, "DPCommandBarOverlay")) return YES;
+    return NO;
+}
+
 NSView *DPCompactToolbar(NSView *commandBar) {
     NSView *toolbar = DPCommandBarPart(commandBar, DPDiaCommandBarToolbar);
     BOOL compacts = toolbar && (DPCompacts(toolbar) || [DPCommandBarDefaults() boolForKey:DPChatLockedKey]);
-    return DPCompactCommandBar.on && compacts ? toolbar : nil;
+    return DPCompactCommandBar.on && compacts && DPOnCommandBarSurface(commandBar) ? toolbar : nil;
 }
 
 NSView *DPGoButton(NSView *toolbar) {
@@ -48,15 +55,13 @@ void DPSetTrim(NSView *container, CGFloat trim) {
 
 void DPApplyCompactCommandBar(DPPatch *patch) {
     for (NSView *commandBar in DPFindViews(DPDiaCommandBar)) commandBar.needsLayout = YES;
-    DPResizeNewTabPanels();
-    DPResizePopovers();
 }
 
 static NSString *DPVerifyCompactCommandBar(DPPatch *patch) {
     for (NSView *commandBar in DPFindViews(DPDiaCommandBar)) {
         NSView *toolbar = DPCommandBarPart(commandBar, DPDiaCommandBarToolbar), *go = DPGoButton(toolbar);
         NSView *input = DPCommandBarPart(commandBar, DPDiaCommandBarInput);
-        if (!go || !input || !DPCompacts(toolbar)) continue;
+        if (!go || !input || !DPCompacts(toolbar) || !DPOnCommandBarSurface(commandBar)) continue;
         NSRect goFrame = [go convertRect:go.bounds toView:input.superview];
         BOOL beside = NSMinY(goFrame) < NSMaxY(input.frame) && NSMaxY(goFrame) > NSMinY(input.frame);
         if (beside != patch->on) return patch->on ? @"Go is still under the input" : @"Go is still beside the input";

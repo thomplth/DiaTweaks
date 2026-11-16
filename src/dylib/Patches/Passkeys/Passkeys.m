@@ -11,9 +11,12 @@
 
 extern DPPatch DPPasskeys;
 
-static NSString *DPAppSupport(NSString *path) {
-    return [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:path];
-}
+static NSString *DPExtensionFolder(void) { return DPAppSupport(@"DiaPatches/passkeys-extension"); }
+
+// Dia's Chromium reads native messaging hosts from Chrome's folder.
+static NSString *DPHostManifestPath(void) { return DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.diapatches.passkeys.json"); }
+
+static NSString *const kFiles[] = { @"manifest.json", @"page.js", @"bridge.js", @"worker.js" };
 
 // SubjectPublicKeyInfo for a 2048-bit RSA key, ahead of its 270-byte PKCS#1 body.
 static const uint8_t kRSA2048SPKIHeader[] = { 0x30, 0x82, 0x01, 0x22, 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86,
@@ -60,52 +63,50 @@ static NSData *DPExtensionFile(NSString *name) {
     return bytes ? [NSData dataWithBytes:bytes length:size] : nil;
 }
 
-static BOOL DPWriteExtension(NSString *folder, NSData *key) {
-    [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
-    NSMutableDictionary *manifest = [NSJSONSerialization JSONObjectWithData:DPExtensionFile(@"manifest.json") ?: NSData.data options:NSJSONReadingMutableContainers error:nil];
-    if (![manifest isKindOfClass:NSMutableDictionary.class]) return NO;
-    manifest[@"key"] = [key base64EncodedStringWithOptions:0];
-    NSMutableDictionary *files = [@{ @"manifest.json" : [NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil] } mutableCopy];
-    for (NSString *name in @[ @"page.js", @"bridge.js", @"worker.js" ]) files[name] = DPExtensionFile(name);
-    for (NSString *name in @[ @"manifest.json", @"page.js", @"bridge.js", @"worker.js" ])
-        if (!files[name] || ![files[name] writeToFile:[folder stringByAppendingPathComponent:name] atomically:YES]) return NO;
-    return YES;
+static NSError *gWriteError;
+
+static BOOL DPWrite(NSData *data, NSString *path) {
+    NSError *error;
+    if ([NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:&error]
+        && [data writeToFile:path options:NSDataWritingAtomic error:&error])
+        return YES;
+    gWriteError = error;
+    return NO;
 }
 
-// Dia's Chromium looks for native messaging hosts in Chrome's folder.
-static NSString *DPHostManifestPath(void) { return DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.diapatches.passkeys.json"); }
-
-static BOOL DPRegisterHost(NSString *extensionID) {
-    NSDictionary *manifest = @{
+static BOOL DPSetUpPasskeys(void) {
+    gWriteError = nil;
+    NSData *key = DPExtensionKey();
+    if (!DPCLITrusted() || !key) return NO;
+    NSMutableDictionary *manifest = [NSJSONSerialization JSONObjectWithData:DPExtensionFile(kFiles[0]) ?: NSData.data options:NSJSONReadingMutableContainers error:nil];
+    if (![manifest isKindOfClass:NSMutableDictionary.class]) return NO;
+    manifest[@"key"] = [key base64EncodedStringWithOptions:0];
+    if (!DPWrite([NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil], [DPExtensionFolder() stringByAppendingPathComponent:kFiles[0]])) return NO;
+    for (int i = 1; i < 4; i++) {
+        NSData *file = DPExtensionFile(kFiles[i]);
+        if (!file || !DPWrite(file, [DPExtensionFolder() stringByAppendingPathComponent:kFiles[i]])) return NO;
+    }
+    NSDictionary *host = @{
         @"name" : @"com.diapatches.passkeys",
         @"description" : @"DiaTweaks passkeys",
         @"path" : DPAppSupport(@"DiaPatches/bin/diapatch"),
         @"type" : @"stdio",
-        @"allowed_origins" : @[ [NSString stringWithFormat:@"chrome-extension://%@/", extensionID] ],
+        @"allowed_origins" : @[ [NSString stringWithFormat:@"chrome-extension://%@/", DPExtensionID(key)] ],
     };
-    NSData *json = [NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil];
-    [NSFileManager.defaultManager createDirectoryAtPath:DPHostManifestPath().stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
-    return [json writeToFile:DPHostManifestPath() atomically:YES];
+    return DPWrite([NSJSONSerialization dataWithJSONObject:host options:NSJSONWritingPrettyPrinted error:nil], DPHostManifestPath());
+}
+
+static NSString *DPPasskeysProblem(DPPatch *patch) {
+    if (!DPCLITrusted()) return [NSString stringWithFormat:@"%@ isn’t the diapatch this build shipped with.", DPAppSupport(@"DiaPatches/bin/diapatch")];
+    if (gWriteError) return DPWriteProblem(DPExtensionFolder(), gWriteError);
+    for (int i = 0; i < 4; i++) {
+        NSString *file = [DPExtensionFolder() stringByAppendingPathComponent:kFiles[i]];
+        if (![NSFileManager.defaultManager fileExistsAtPath:file]) return [NSString stringWithFormat:@"%@ is missing.", file];
+    }
+    return DPRelayProblem() ?: DPHostProblem(DPHostManifestPath(), @"com.diapatches.passkeys");
 }
 
 static BOOL gExtensionLoaded;
-
-// Chromium only reads the last --load-extension, so one already on the command line gets this folder added to it.
-static NSArray<NSString *> *DPWithExtension(NSArray<NSString *> *argv, NSString *folder) {
-    NSUInteger existing = [argv indexOfObjectPassingTest:^BOOL(NSString *arg, NSUInteger i, BOOL *stop) { return [arg hasPrefix:@"--load-extension="]; }];
-    if (existing == NSNotFound) return [argv arrayByAddingObject:[@"--load-extension=" stringByAppendingString:folder]];
-    NSMutableArray *merged = [argv mutableCopy];
-    merged[existing] = [NSString stringWithFormat:@"%@,%@", argv[existing], folder];
-    return merged;
-}
-
-// Dia passes Chromium its command line here.
-static id DPConfiguration_init(id self, SEL _cmd, int argc, NSArray *argv, NSString *profilePath, NSUInteger applicationID, BOOL isProduction,
-                               NSUInteger restorationPolicy, BOOL loadAllProfiles, BOOL quitRunLoop, NSString *suiteName) {
-    NSArray *withExtension = DPWithExtension(argv, DPAppSupport(@"DiaPatches/passkeys-extension"));
-    return DPCallOriginal(DPConfiguration_init, self, argc + (int)(withExtension.count - argv.count), withExtension, profilePath, applicationID, isProduction,
-                          restorationPolicy, loadAllProfiles, quitRunLoop, suiteName);
-}
 
 // Any app can post these notifications, so only the copy of Dia diapatch starts for passkeys gets brought forward.
 static BOOL DPIsPasskeyHelper(pid_t pid) {
@@ -129,24 +130,21 @@ static void DPShowHelper(NSNotification *note) {
 }
 
 static void DPInstallPasskeys(void) {
-    NSString *extension = DPAppSupport(@"DiaPatches/passkeys-extension");
     if (!DPPasskeys.on) {
-        [NSFileManager.defaultManager removeItemAtPath:extension error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:DPExtensionFolder() error:nil];
         [NSFileManager.defaultManager removeItemAtPath:DPHostManifestPath() error:nil];
         return;
     }
-    NSData *key = DPExtensionKey();
-    if (!DPCLITrusted() || !key || !DPWriteExtension(extension, key) || !DPRegisterHost(DPExtensionID(key)))
-        return (void)NSLog(@"DiaPatches: couldn't set up passkeys");
-    DPHook("ArcBrowserApplicationConfiguration", @selector(init:argv:profilePath:applicationID:isProduction:sessionRestorationPolicy:shouldLoadAllProfilesAtStartup:quitRunLoopOnTermination:userDefaultsSuiteName:),
-           (IMP)DPConfiguration_init);
+    if (!DPSetUpPasskeys()) return (void)NSLog(@"DiaPatches: couldn't set up passkeys");
+    DPLoadExtension(DPExtensionFolder());
     gExtensionLoaded = YES;
     for (NSString *name in @[ @"com.diapatches.passkeys.show", @"com.diapatches.passkeys.signIn" ])
         [NSDistributedNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { DPShowHelper(note); }];
 }
 
 static void DPApplyPasskeys(DPPatch *patch) {
-    if (patch->on == gExtensionLoaded || patch->on != DPSavedOn(patch)) return;  // the self-test flips patches without saving
+    if (patch->on) DPSetUpPasskeys();
+    if (patch->on == gExtensionLoaded || patch->on != DPSavedOn(patch) || (patch->on && DPPasskeysProblem(patch))) return;  // The self-test flips patches without saving.
     NSAlert *alert = [NSAlert new];
     alert.messageText = patch->on ? @"Relaunch Dia to allow iCloud passkeys" : @"Relaunch Dia to stop using iCloud passkeys";
     [alert addButtonWithTitle:@"Relaunch"];
@@ -165,4 +163,5 @@ DP_PATCH(DPPasskeys) {
     .section = @"Passwords",
     .install = DPInstallPasskeys,
     .apply = DPApplyPasskeys,
+    .ready = DPPasskeysProblem,
 };

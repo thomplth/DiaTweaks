@@ -1,39 +1,44 @@
-// Shared by hide toolbar and its options, which only work on top of it.
 #import "StdPatch/StdPatch.h"
+#include <simd/simd.h>
 
-extern DPPatch DPHideToolbar, DPRevealToolbarOnHover, DPShowToolbarWithSidebar, DPShowToolbarOnNewTab, DPPlainSelectedTab;
-extern DPPatch DPPeekToolbarOnCopy, DPCopyToast;
-extern NSHashTable<NSView *> *DPPanes;  // Every content pane laid out so far.
+extern DPPatch DPHideToolbar, DPRevealToolbarOnHover, DPShowToolbarWithSidebar, DPShowToolbarOnNewTab, DPShowToolbarWithTopTabs, DPPlainSelectedTab;
+extern DPPatch DPShowLoadingProgress;
+extern NSHashTable<NSView *> *DPPanes;
 
-// Shows the hidden toolbar while the pointer is at the top of a pane, or in its place while an option keeps it there. One per pane.
 @interface DPToolbarHover : NSObject
 @property (nonatomic, weak) NSView *pane, *bar, *bookmarks;
 @property (nonatomic, strong) NSTrackingArea *tracking;
-@property (nonatomic, strong) NSTimer *animation, *hideTimer, *inPlaceAnimation, *peekTimer;
-@property (nonatomic) BOOL revealed, inPlace, peeking;
-@property (nonatomic) CGFloat progress, inPlaceProgress;  // How far the pointer, and an option keeping it in place, have brought the toolbar back.
-+ (DPToolbarHover *)forPane:(NSView *)pane;  // nil until the pane is laid out.
+@property (nonatomic, strong) NSTimer *animation, *hideTimer, *inPlaceAnimation;
+@property (nonatomic) BOOL revealed, inPlace;
+@property (nonatomic) CGFloat progress, inPlaceProgress;
++ (DPToolbarHover *)forPane:(NSView *)pane;
 + (DPToolbarHover *)attachToPane:(NSView *)pane;
 - (void)updateForBar:(NSView *)bar bookmarks:(NSView *)bookmarks;
-- (void)peek;  // Reveals the hidden toolbar for a moment, as the pointer would.
-- (void)endPeek;
 @end
 
-// Layout.m
-NSRect DPLaidOutFrame(NSView *view);  // Where Dia put the view, before the patch moved it.
-CGFloat DPTop(NSView *pane, NSRect r);  // Distances from the pane's top, whichever way it's flipped.
+NSRect DPLaidOutFrame(NSView *view);
+CGFloat DPTop(NSView *pane, NSRect r);
 CGFloat DPBottom(NSView *pane, NSRect r);
 NSView *DPBookmarksUnder(NSView *pane, NSView *bar);
-BOOL DPKeptInPlace(NSView *pane);  // With the sidebar open, or on a new tab page, when their options are on.
+BOOL DPKeptInPlace(NSView *pane);
 NSString *DPVerifyKeptInPlace(DPPatch *patch);
 void DPApplyToolbar(NSView *pane);
 void DPApplyToolbarOpacity(DPToolbarHover *hover);
 void DPRelayoutPanes(void);
+void DPApplyRelayoutPanes(DPPatch *patch);
+void DPRepaintTabs(NSWindow *window);
 
-// PlainTab.m
-void DPRepaintTabs(NSWindow *window);  // After the toolbar's opacity changes.
-
-// CopyToast.m
 void DPShowCopyToast(NSView *pane, NSString *message);
-void DPRemoveCopyToasts(void);
-NSString *DPVerifyNoCopyToast(DPPatch *patch);
+
+void DPShowProgressLine(NSView *pane, CGFloat fraction);
+void DPFinishProgressLine(NSView *pane);
+void DPRemoveProgressLine(NSView *pane);
+BOOL DPShowsProgressLine(NSView *pane);
+
+CAMetalLayer *DPProgressShaderLayer(void);
+void DPDrawProgressShader(CAMetalLayer *layer, CGFloat progress, CGFloat cycle, simd_float3 primary, simd_float3 secondary);
+BOOL DPProgressColorSlots(NSUInteger slots[2]);
+
+NSMenu *DPProgressColorChoices(void);
+void DPProgressColors(NSView *pane, NSString *choice, simd_float3 *primary, simd_float3 *secondary);
+void DPInstallProgressColors(void);

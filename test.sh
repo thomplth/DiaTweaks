@@ -1,5 +1,4 @@
 #!/bin/sh
-# Relaunches Dia with this build in test mode and prints what the patches' self-checks found. Saved settings stay as they are.
 set -eu
 cd "$(dirname "$0")"
 support="${DIAPATCH_HOME:-$HOME/Library/Application Support/DiaPatches}"
@@ -19,8 +18,9 @@ cp -f build/DiaPatches.dylib "$support/DiaPatches.dylib"
 "$support/bin/diapatch" apply >/dev/null
 rm -f "$report"
 DIAPATCH_TEST="$report" nohup "$dia" >/dev/null 2>&1 &
-for _ in $(seq 240); do [ -f "$report" ] && break; sleep 0.5; done
-[ -f "$report" ] || { echo "Dia wrote no report in 2 minutes. Is it patched (./install.sh)?" >&2; exit 1; }
+test_pid=$!
+for _ in $(seq 600); do [ -f "$report" ] && break; kill -0 $test_pid 2>/dev/null || break; sleep 0.5; done
+[ -f "$report" ] || { echo "Dia wrote no report in 5 minutes, or quit before writing one. Is it patched (./install.sh), and was every other Dia closed?" >&2; exit 1; }
 
 exec python3 - "$report" <<'EOF'
 import json, sys

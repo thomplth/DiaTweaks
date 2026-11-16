@@ -1,9 +1,5 @@
 #import "StdPatch/StdPatch.h"
 
-// Dia shows the address field's background and its buttons while the field is hovered. The field's hover tracker sets
-// that state from the pointer, and a delayed tracker hands it on to the field after the pointer settles. While on, this
-// marks the field hovered, hands that to the field itself, and keeps the pointer's comings and goings from undoing it.
-
 extern DPPatch DPShowAddressField;
 
 typedef void (*DPHoverHandler)(bool hovered, void *context __attribute__((swift_context))) __attribute__((swiftcall));
@@ -45,7 +41,6 @@ static void DPTracker_mouseExited(id self, SEL _cmd, NSEvent *event) {
     if (!DPKeepsHover(self)) DPCallOriginal(DPTracker_mouseExited, self, event);
 }
 
-// Each tab has its own field, and Dia lays one out before showing it.
 static void DPField_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPField_layout, self);
     if (DPShowAddressField.on && !DPShowsHover(self)) DPSetHover(self, YES);
@@ -56,7 +51,6 @@ static BOOL DPPointerOver(NSView *field) {
 }
 
 static void DPApplyShowAddressField(DPPatch *patch) {
-    // Off, each field goes back to whether the pointer is over it.
     for (NSView *field in DPFindViews(DPDiaAddressField)) DPSetHover(field, patch->on || DPPointerOver(field));
 }
 
@@ -82,8 +76,8 @@ DP_PATCH(DPShowAddressField) {
     .title = @"Always Show Address Field",
     .detail = @"Show the address field’s background and its bookmark, split view and site buttons without pointing at it.",
     .symbol = @"link.circle.fill",
-    .tint = @"systemPurpleColor",
-    .section = @"Toolbar Items",
+    .tint = @"systemIndigoColor",
+    .section = @"Toolbar",
     .classes = DPClasses(DPDiaAddressField, DPDiaHoverTracker),
     .disabledBy = @"hideToolbar",
     .install = DPInstallShowAddressField,

@@ -64,7 +64,6 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    // The menu always asks: --yes is for scripted commands.
     let ui = Ui::new(cli.yes && cli.command.is_some());
     if cli.command.is_none() && !ui.interactive {
         let _ = Cli::command().write_help(&mut io::stderr());

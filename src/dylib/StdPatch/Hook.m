@@ -1,6 +1,5 @@
 #import "StdPatch/StdPatch.h"
 
-// Hooks are added per class as views appear, so the table grows as it needs to.
 typedef struct { Class cls; SEL sel; IMP replacement, original; } DPHookRecord;
 static DPHookRecord *DPHooks;
 static size_t DPHookCount;
@@ -8,7 +7,7 @@ static size_t DPHookCount;
 void DPHookClass(Class cls, SEL sel, IMP replacement) {
     Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
     if (!method) return;
-    // Already runs for cls, here or in a superclass. A second copy would look itself up and call itself.
+    // Already hooked here or in a superclass: a second copy would find itself as the original and recurse.
     for (size_t i = 0; i < DPHookCount; i++) {
         if (DPHooks[i].sel != sel || DPHooks[i].replacement != replacement) continue;
         for (Class c = cls; c; c = class_getSuperclass(c)) if (c == DPHooks[i].cls) return;
@@ -30,4 +29,10 @@ IMP DPOriginalIMP(id object, SEL sel, IMP replacement) {
         for (size_t i = 0; i < DPHookCount; i++)
             if (DPHooks[i].cls == c && DPHooks[i].sel == sel && DPHooks[i].replacement == replacement) return DPHooks[i].original;
     abort();
+}
+
+IMP DPDiaIMP(Class cls, SEL sel) {
+    for (size_t i = 0; i < DPHookCount; i++)
+        if (DPHooks[i].cls == cls && DPHooks[i].sel == sel) return DPHooks[i].original;
+    return class_getMethodImplementation(cls, sel);
 }

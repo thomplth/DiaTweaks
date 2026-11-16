@@ -6,7 +6,6 @@ static void DPApplyTidyTabs(DPPatch *patch) {
     DPRelayoutTidyLists();
 }
 
-// Only the sidebar has a tab list; with tabs at the top there's nothing to check.
 static NSString *DPVerifyTidyTabs(DPPatch *patch) {
     for (NSView *list in DPFindViews(DPDiaTabList)) {
         if (list.hiddenOrHasHiddenAncestor) continue;
@@ -22,12 +21,12 @@ static NSString *DPVerifyTidyTabs(DPPatch *patch) {
 
 DP_PATCH(DPTidyTabs) {
     .key = @"tidyTabs",
-    .order = 78,
-    .section = @"Sidebar & Tab Bar",
+    .order = 85,
+    .section = @"Tabs",
     .title = @"Tidy Tabs",
     .detail = @"Adds a broom to the line above your tabs. Click it to group your tabs by what they’re for, using Apple Intelligence on your Mac; Dia names the groups. Shows with more than 5 tabs.",
     .symbol = @"sparkles",
-    .tint = @"systemTealColor",
+    .tint = @"systemPinkColor",
     .classes = DPClasses(DPDiaTabList, DPDiaSidebarHeader),
     .install = DPInstallTidyLayout,
     .apply = DPApplyTidyTabs,

@@ -1,5 +1,6 @@
-// Tools for writing patches, on with `defaults write com.diapatches devTools -bool YES` and a relaunch of Dia.
 #import "StdPatch/StdPatch.h"
 
 void DPInstallDevTools(void);
-NSString *DPDescribeViews(NSView *root);  // One line per view: class, frame, label, rounded corners, and whether it's hidden.
+NSString *DPDescribeViews(NSView *root);
+NSString *DPBesideDylib(NSString *name);
+void DPTraceLayoutLoops(void);

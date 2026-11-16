@@ -4,8 +4,7 @@ use crate::{child::OnInterrupt, dia::Diapatch, env::Env, lock, signals::Cancelle
 
 const FINISHING: &str = "Finishing the install so Dia isn't left half-patched…";
 
-/// `diatweaks update`: install the latest release, then patch Dia again even if nothing was new,
-/// which also repairs an install.
+/// Patches Dia again even if nothing was new, which also repairs an install.
 pub fn run(env: &Env, ui: &Ui) -> Result<()> {
     let diapatch = Diapatch::find(env)?;
     if !env.app.exists() {

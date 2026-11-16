@@ -1,6 +1,6 @@
 name: Bug
 description: Something a patch broke or doesn't do right.
-labels: [bug]
+labels: ["🐛 Bug"]
 body:
   - type: checkboxes
     id: searched
@@ -21,38 +21,69 @@ body:
         - Square Corners Next to Sidebar
         - Hide Toolbar
         - Show Toolbar on Hover
+        - Toggle toolbar visibility
         - Show Toolbar on New Tabs
         - Show Toolbar with Sidebar
-        - Show Toast When Copying URL
-        - Show Toolbar When Copying URL
+        - Show Loading Progress
         - Hide Site Color in Tab Bar
         - Always Show Address Field
-        - Hide Chat Button
         - Hide Sidebar Button
+        - Extensions Shortcut
         - Tidy Tabs
         - Profile Emoji
+        - Switch Profiles with ⌘1–9
         - Translucent Sidebar
         - Compact Sidebar Header
-        - Hide Chats Button
         - Hide Pinned Tab Border
+        - Hide Pinned Tab Card
+        - Collapse Pinned Tabs
+        - Hide Group Background
         - Hide Recent Tabs Button
         - Don’t Open Downloads List
+        - Hide Site Not Working Prompt
         - Close Tabs from Tab Switcher
+        - Unload Tabs
+        - Undo Closing a Tab
+        - Pin Tab Shortcut
+        - Save Page As
+        - Hide Sleeping Tabs
         - Compact Command Bar
         - Compact with Chat Usage Too
         - Open New Tabs in Command Bar
         - Blur Page Behind
         - Darken Page Behind
+        - Shadow Behind Bar
+        - Scroll Page Behind
         - Remember What You Typed
+        - Hide History Suggestions
+        - Hide New Tab Logo
+        - Turn Off AI
+        - Morning Brief Language
+        - Hide Chat Button
+        - Hide Chats Button
         - Hide Upgrade Banner
+        - Hide Personalize Button
+        - Hide Skills Suggestions
         - Window Material
         - Keep Windows Active
-        - macOS 26 Window Corners
+        - Drag Window from Page
+        - Window Corners
+        - App Icon
         - Hide Window Controls
+        - Skip Account
         - Allow 1Password
+        - Allow Bitwarden
         - Allow iCloud Passkeys
         - Allow iCloud Passwords
         - Group Tabs by Domain
+        - Merge Subdomains
+        - Peek on Shift-Click
+        - Peek from Pinned Tabs
+        - Drag Links to Peek
+        - Hide Link Address
+        - Little Dia
+        - Close with Escape
+        - Split TLS ClientHello
         - Patches pane in Settings
         - Installing, updating or restoring
         - Not sure

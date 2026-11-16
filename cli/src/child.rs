@@ -16,15 +16,10 @@ use crate::{
     ui::Spinner,
 };
 
-/// What Ctrl-C (or SIGTERM, SIGHUP) does to a running child. Children get their own process group,
-/// so the terminal's Ctrl-C reaches only diatweaks, which then decides.
 pub enum OnInterrupt {
-    /// Stop it: it only writes inside our temporary checkout.
     Stop,
-    /// Stop only its downloads; diapatch cleans up after a failed download and exits. Everything
-    /// else it does finishes, because it moves whole app bundles.
+    /// Only downloads stop: diapatch moves whole app bundles, which must finish.
     StopDownloads,
-    /// Let it finish, showing why.
     Finish(&'static str),
 }
 
@@ -34,7 +29,6 @@ pub struct Finished {
 }
 
 impl Finished {
-    /// The end of the output for error messages, or the exit status if there was none.
     pub fn tail(&self, count: usize) -> String {
         let lines: Vec<&str> = self
             .output
@@ -48,8 +42,7 @@ impl Finished {
     }
 }
 
-/// Runs `command` with no input and its output captured, polling for interrupts. Output goes to an
-/// unlinked file, not a pipe, so the child can't die of SIGPIPE if diatweaks itself is killed.
+/// An unlinked file, not a pipe: the child must not die of SIGPIPE if diatweaks is killed.
 pub fn run(
     command: &mut Command,
     on_interrupt: OnInterrupt,
@@ -145,7 +138,6 @@ pub fn pid_path(pid: libc::pid_t) -> Option<PathBuf> {
     (length > 0).then(|| PathBuf::from(OsStr::from_bytes(&buffer[..length as usize])))
 }
 
-/// The output of a short command that needs no interrupt handling, if it succeeded.
 pub fn quick(command: &mut Command) -> Option<String> {
     let output = command
         .process_group(0)

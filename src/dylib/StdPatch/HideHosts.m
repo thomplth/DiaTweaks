@@ -1,25 +1,33 @@
-// Where Dia keeps the views hide patches match: its toolbar, the sidebar's header and footer, and the tab strip.
 #import "StdPatch/Hide.h"
 
-const char *const DPHideHostClasses[] = {DPDiaToolbar, DPDiaSidebarHeader, DPDiaSidebarFooter, NULL};
+const char *const DPHideHostClasses[] = {DPDiaToolbar, DPDiaSidebarHeader, DPDiaSidebarFooter, DPDiaNewTabPage, NULL};
 static char DPGrownKey;
+
+static void DPCenterSpaceSwitcher(NSView *footer) {
+    NSView *switcher = DPSubview(footer, DPDiaSpaceSwitcher);
+    BOOL patched = NO;
+    for (NSView *sub in footer.subviews) patched |= [DPSuppressed containsObject:sub];
+    if (!switcher || !patched) return;
+    CGFloat inset = MAX(NSMinX(switcher.frame), NSWidth(footer.bounds) - NSMaxX(switcher.frame));
+    switcher.frame = NSMakeRect(inset, NSMinY(switcher.frame), NSWidth(footer.bounds) - 2 * inset, NSHeight(switcher.frame));
+}
 
 static void DPBar_layout(NSView *self, SEL _cmd) {
     [DPHideHosts addObject:self];
     DPEnforceHides(self);
     DPCallOriginal(DPBar_layout, self);
+    if (DPIsKind(self, DPDiaSidebarFooter)) DPCenterSpaceSwitcher(self);
 }
 
 static void DPSetHeight(NSView *view, CGFloat height) {
     [view setFrameSize:NSMakeSize(NSWidth(view.frame), height)];
 }
 
-// With everything in the sidebar footer hidden, and hidden by patches that are on, the view above grows over its space.
 static void DPSidebar_viewDidLayout(NSViewController *self, SEL _cmd) {
     DPCallOriginal(DPSidebar_viewDidLayout, self);
     NSView *sidebar = self.view, *footer = DPSubview(sidebar, DPDiaSidebarFooter);
     [DPHideHosts addObject:sidebar];
-    if (!footer || !sidebar.isFlipped) return;
+    if (!footer || !sidebar.isFlipped || !DPMayAdjust(footer)) return;
     DPEnforceHides(footer);
     BOOL empty = NO, hidden = YES;
     for (NSView *item in footer.subviews) {
@@ -45,7 +53,6 @@ static void DPSidebar_viewDidLayout(NSViewController *self, SEL _cmd) {
     }
 }
 
-// The tab strip's buttons sit directly in its root view, beside the tabs, so only those are searched.
 static void DPTabStrip_viewWillLayout(NSViewController *self, SEL _cmd) {
     [DPHideHosts addObject:self.view];
     for (NSView *sub in self.view.subviews) if (DPHider(sub)) DPEnforceHides(sub);

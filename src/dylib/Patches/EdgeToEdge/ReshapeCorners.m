@@ -1,6 +1,6 @@
 #import "EdgeToEdge.h"
 
-// Scales the corners of the path's first subpath in place; same elements, so Dia's path animations still interpolate.
+// Keeps the same elements, so Dia's path animations still interpolate.
 CGPathRef DPReshapeCorners(CGPathRef path, CGFloat extent, CGFloat rightScale, CGFloat leftScale) {
     if (!path) return NULL;
     __block CGRect box = CGRectNull;

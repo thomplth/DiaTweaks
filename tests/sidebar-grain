@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/.."
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/sidebar-grain-test.XXXXXX")
+trap 'rm -rf "$temporary"' EXIT
+patch=src/dylib/Patches/SidebarGrain
+clang -fobjc-arc -O2 -Wall -Wextra -Wno-unused-parameter -Isrc/dylib \
+    -framework AppKit -framework QuartzCore tests/sidebar-grain.m tests/sidebar-grain-render.m \
+    tests/sidebar-grain-hosts.m tests/sidebar-grain-menu.m \
+    "$patch/GrainView.m" "$patch/GrainAppearance.m" "$patch/GrainMaterial.m" "$patch/TextureMaterial.m" \
+    "$patch/TexturePatterns.m" "$patch/GrainSettings.m" "$patch/GrainControls.m" \
+    "$patch/GrainHosts.m" "$patch/GrainMenu.m" \
+    src/dylib/Patches/KeepWindowsActive/KeepWindowsActive.m \
+    src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m -o "$temporary/check"
+"$temporary/check"

@@ -9,7 +9,7 @@ Keep it small, test it hard, show it working.
 - Never leave a section empty or delete it. If one doesn't apply, write `N/A` in it, and tick a checklist item that doesn't apply with `(N/A)` after it. Proof is never N/A for a change you can see in Dia.
 - Proof is required for anything visible in Dia: a screenshot for static changes, a screen recording for anything that animates. Show before and after when you change existing behaviour.
 - Try to break what you made before you open the PR, and fix what you find. Every change has to work with tabs in the sidebar and tabs at the top, and with each tweak on and off.
-- Build with `make` and run it on your own Dia with `./install.sh`. Then run `make test`.
+- Build with `make` and run it on your own Dia with `./install.sh`. Then run `make check` and `make test`.
 
 ## Adding a patch
 
@@ -36,6 +36,8 @@ The preview comes from the wiki repo's `previews` folder, 16:10: `vertical-<key>
 CI fails if a patch has no wiki page or the sidebar doesn't link to it, so a new tweak's PR stays red until its page is up. Run `scripts/check-tweak-docs` after `make` to check.
 
 ## Testing
+
+`make check` runs without Dia, and CI runs it too: it tests the Group Tabs by Domain logic in `tests/group-tabs.m`, and `scripts/check-patches` fails if a tweak's color differs from the rest of its section, an icon names an SF Symbol that doesn't exist, or a description runs past 280 characters.
 
 `make test` installs your build's dylib and reopens Dia in test mode. Dia tries the patches all off, all on, each on its own and in pairwise combinations without saving any of it, runs every patch's `verify` after each, then goes back to your settings. The script prints what failed and exits non-zero if anything did. It can't move the tabs between the sidebar and the top, so run it once in each layout. Square corners only get tested with the sidebar open.
 

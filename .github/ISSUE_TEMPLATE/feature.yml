@@ -1,6 +1,6 @@
 name: Feature request
 description: A patch you'd like to see. If someone already asked for it, give theirs a thumbs-up instead.
-labels: [feature]
+labels: ["✨ Feature"]
 body:
   - type: checkboxes
     id: searched

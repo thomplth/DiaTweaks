@@ -12,6 +12,10 @@ One or two sentences on what it does.
 
 ![Title, as in Settings](https://raw.githubusercontent.com/wiki/JaceThings/DiaTweaks/previews/vertical-key.webp)
 
+## Why use it
+
+<!-- Two to four short sentences: the problem it solves, who or when it's for, and when you might not want it. -->
+
 ## Turn it on
 
 Open **Dia → Settings → Patches** and switch on **Title, as in Settings**. Or run:

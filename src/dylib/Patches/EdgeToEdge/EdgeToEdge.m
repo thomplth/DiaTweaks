@@ -8,14 +8,12 @@ NSValue *DPRequestedFrame(NSView *container) {
     return DPGet(container, &DPRequestedFrameKey);
 }
 
-// How far each edge of `frame` is from the same edge of the superview.
 static NSEdgeInsets DPGaps(NSView *superview, NSRect frame) {
     NSRect bounds = superview.bounds;
     CGFloat low = NSMinY(frame) - NSMinY(bounds), high = NSMaxY(bounds) - NSMaxY(frame);
     return NSEdgeInsetsMake(superview.isFlipped ? low : high, NSMinX(frame) - NSMinX(bounds), superview.isFlipped ? high : low, NSMaxX(bounds) - NSMaxX(frame));
 }
 
-// Grows the page over each side where Dia left the window padding, by `progress` of it.
 static NSRect DPEdgeToEdgeFrame(NSView *view, NSRect frame) {
     CGFloat inset = DPEdgeToEdge.progress * DPWindowPadding;
     NSView *superview = view.superview;
@@ -40,11 +38,10 @@ CGFloat DPBaseCornerRadius(NSView *container) {
     return radius ? [DPDiaValue(container, &DPRadiusKey, @(*radius)) doubleValue] : 0;
 }
 
-// The corners grow with the page and the window's so they stay concentric with the window's.
 static void DPSetCornerRadius(NSView *container, CGFloat inset) {
     CGFloat *radius = DPIvar(container, "cornerRadius");
     if (!radius) return;
-    CGFloat base = DPBaseCornerRadius(container), target = base + inset + DPWindowCornerGrowth(container.window);
+    CGFloat base = DPBaseCornerRadius(container), target = MAX(0, base + inset + DPWindowCornerGrowth(container.window));
     DPOverride(container, &DPRadiusKey, @(base), @(target));
     if (*radius == target) return;
     *radius = target;
@@ -77,7 +74,7 @@ static void DPContainer_setFrame(NSView *self, SEL _cmd, NSRect frame) {
     }
     DPSet(self, &DPRequestedFrameKey, @(frame));
     [DPContainers addObject:self];
-    NSRect adjusted = DPEdgeToEdgeFrame(self, frame);
+    NSRect adjusted = DPMayAdjust(self) ? DPEdgeToEdgeFrame(self, frame) : frame;
     DPSetCornerRadius(self, NSEqualRects(adjusted, frame) ? 0 : DPEdgeToEdge.progress * DPWindowPadding);
     DPCallOriginal(DPContainer_setFrame, self, adjusted);
 }
@@ -98,9 +95,8 @@ static NSString *DPVerifyEdgeToEdge(DPPatch *patch) {
         NSValue *requested = DPRequestedFrame(container);
         if (!requested) return @"never saw Dia place the web content";
         CALayer *layer = DPRoundedContent(container).layer;
-        CACornerMask screen = DPBesideSidebar(container) ? DPRightCorners : DPLeftCorners | DPRightCorners;
         BOOL square = patch->on && DPFullScreen(container);
-        if (layer && (layer.mask || (layer.maskedCorners & screen) != (square ? 0 : screen)))
+        if (layer && (DPCornersRound(layer, YES) == square || (!DPBesideSidebar(container) && DPCornersRound(layer, NO) == square)))
             return square ? @"corners stay round in full screen" : @"corners are square out of full screen";
         if (!patch->on || DPChatCard(container)) {
             if (!NSEqualRects(container.frame, requested.rectValue)) return @"web content isn't where Dia put it";
@@ -117,6 +113,7 @@ static void DPInstallEdgeToEdge(void) {
     DPContainers = [NSHashTable weakObjectsHashTable];
     DPHook(DPDiaContentContainer, @selector(setFrame:), (IMP)DPContainer_setFrame);
     DPInstallRestyle();
+    DPInstallPopover();
 }
 
 DP_PATCH(DPEdgeToEdge) {

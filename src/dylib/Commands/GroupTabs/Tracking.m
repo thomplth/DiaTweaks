@@ -46,37 +46,59 @@ static void DPBrowser_didCreate(id self, SEL _cmd, id browser, id contents, BOOL
     if (browser && contents) DPRemember(contents, nil, browser, DPDelegateFor(self, browser));
 }
 
-// Tabs opened from Dia's own UI come from here, not from the Chromium callbacks above, which only see
-// tabs restored at launch and ones a page opens.
+// Tabs opened from Dia's UI arrive only here; the delegate callbacks miss them.
 static id DPBrowser_createWebContents(id self, SEL _cmd, id params) {
     id contents = DPCallOriginal(DPBrowser_createWebContents, self, params);
     DPRemember(contents, nil, self, [DPDelegateByBrowser objectForKey:self]);
     return contents;
 }
 
-// A tab dragged to another window changes browser.
 static void DPBrowser_takeOwnership(id self, SEL _cmd, id contents) {
     DPCallOriginal(DPBrowser_takeOwnership, self, contents);
     DPRemember(contents, nil, self, [DPDelegateByBrowser objectForKey:self]);
 }
 
+NSWindow *DPBrowserWindow(id browser) { return [DPWindowByBrowser objectForKey:browser]; }
+
+static NSString *DPBrowserProfile(id browser) {
+    id context = [browser respondsToSelector:@selector(context)] ? DPMsg(browser, @selector(context)) : nil;
+    id contextID = [context respondsToSelector:@selector(id)] ? DPMsg(context, @selector(id)) : nil;
+    return [contextID respondsToSelector:@selector(directoryBasename)] ? DPText(DPMsg(contextID, @selector(directoryBasename))) : nil;
+}
+
+static NSString *DPFocusedProfile(NSWindow *window) {
+    id controller = DPSwiftValue(DPSwiftValue(window.windowController, @"viewModel"), @"delegate");
+    id focused = DPSwiftValue(controller, @"committedFocusedBrowserContextID");
+    return DPText(DPSwiftValue(DPSwiftValue(focused, @"profileID"), @"directoryBasename"));
+}
+
+static id DPFrontBrowser(NSWindow *window, NSArray *browsers) {
+    NSMutableArray *shown = [NSMutableArray new];
+    for (id browser in browsers)
+        if (window && [DPWindowByBrowser objectForKey:browser] == window) [shown addObject:browser];
+    if (shown.count < 2) return shown.firstObject;
+    NSString *focused = DPFocusedProfile(window);
+    for (id browser in shown)
+        if ([DPBrowserProfile(browser) isEqual:focused]) return browser;
+    return shown.firstObject;
+}
+
+id DPBrowserOfWindow(NSWindow *window) { return DPFrontBrowser(window, DPBrowsers.allObjects); }
+
 id DPCommandBrowser(void) {
     NSMutableArray *ready = [NSMutableArray new];
     for (id browser in DPBrowsers.allObjects)
         if ([[DPDelegateByBrowser objectForKey:browser] respondsToSelector:@selector(browser:getAllTabGroupsWithCompletion:)]) [ready addObject:browser];
-    for (NSWindow *window in NSApp.orderedWindows)
-        for (id browser in ready)
-            if ([DPWindowByBrowser objectForKey:browser] == window) return browser;
+    for (NSWindow *window in NSApp.orderedWindows) {
+        id browser = DPFrontBrowser(window, ready);
+        if (browser) return browser;
+    }
     return ready.count == 1 ? ready[0] : nil;
 }
 
-NSArray *DPTrackedBrowsers(void) {
-    return DPBrowsers.allObjects;
-}
+NSArray *DPTrackedBrowsers(void) { return DPBrowsers.allObjects; }
 
-id DPGroupingDelegate(id browser) {
-    return [DPDelegateByBrowser objectForKey:browser];
-}
+id DPGroupingDelegate(id browser) { return [DPDelegateByBrowser objectForKey:browser]; }
 
 NSArray *DPTrackedContents(id browser) {
     NSMutableArray *contents = [NSMutableArray new];
@@ -103,4 +125,5 @@ void DPInstallGroupTabs(void) {
     DPHook(DPDiaBrowserDelegate, @selector(browser:didRestoreWebContents:withSessionId:), (IMP)DPBrowser_didRestore);
     DPHook(DPDiaBrowserDelegate, @selector(browser:didCreateNewWebContents:isActive:), (IMP)DPBrowser_didCreate);
     DPInstallGroupMenus();
+    DPInstallGroupTabsShortcut();
 }

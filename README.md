@@ -6,9 +6,22 @@ Unofficial and not affiliated with The Browser Company. Apple Silicon, macOS 14 
 
 ## Tweaks
 
-Each tweak changes one part of how Dia looks, like the padding around pages or a button in the toolbar. There's also a command, **Group Tabs by Domain**, that groups tabs by site.
+Each tweak changes one thing about Dia: it hides something you don't use, changes how something looks, or adds something Dia doesn't do. They're grouped as they are in Settings:
 
-Turn tweaks on and off in **Dia → Settings → Patches**, or with the `diatweaks` command.
+| Section | What the tweaks there change |
+|---|---|
+| Page | The padding and corners around web pages |
+| Toolbar | The toolbar, its buttons and the address field |
+| Sidebar & Tab Bar | The sidebar, pinned tabs, profiles and tab groups |
+| Tabs | Grouping, saving, unloading, closing and reopening tabs |
+| Command Bar | The command bar and what it suggests |
+| New Tab Page | What the new tab page shows |
+| AI | Turning off Dia's AI, all at once or one part at a time |
+| Window | How the window looks and behaves |
+| Passwords | Password managers and passkeys |
+| Links | Opening links in Peek and the address shown on hover |
+
+Turn them on and off in **Dia → Settings → Patches**, or with the `diatweaks` command. Each one's Settings page links to its wiki page, which says what it does and when you'd want it.
 
 [See all tweaks →](https://github.com/JaceThings/DiaTweaks/wiki)
 
@@ -33,20 +46,20 @@ Run `diatweaks` on its own for a menu, or:
 | Command | Does |
 |---|---|
 | `diatweaks list` | Shows every tweak and whether it's on |
-| `diatweaks enable hideToolbar` | Turns a tweak on; Dia changes straight away |
-| `diatweaks disable hideToolbar` | Turns a tweak off |
+| `diatweaks enable hideToolbar` | Turns tweaks on; Dia changes straight away |
+| `diatweaks disable hideToolbar` | Turns tweaks off |
 | `diatweaks status` | Shows Dia's version, safe mode and which tweaks are on |
 | `diatweaks update` | Installs the latest DiaTweaks release and patches Dia again |
 | `diatweaks update-dia` | Downloads a newer Dia and patches it |
 | `diatweaks restore` | Puts the original Dia back |
 
-Tweak names work as keys or titles, like `hideToolbar` or `"Hide toolbar"`. Add `-y` to skip the questions.
+Tweak names work as keys or titles, like `hideToolbar` or `"Hide Toolbar"`, and `enable` and `disable` take several at once. Add `-y` to skip the questions.
 
 ## Updating
 
 Dia's own updater is switched off, so DiaTweaks stands in for it. A background job checks for a new Dia and a new DiaTweaks release every hour, whether or not Dia is open, verifies them and patches Dia ahead of time. When Dia isn't running it installs straight away; when Dia is open, the update goes in when you quit, and Dia reminds you to relaunch until you do, because browser updates usually fix security problems.
 
-**Settings → Patches → Software Update** checks right now. Under **Automatic Updates**, pick for each of Dia and DiaTweaks: off, just show updates, download them, or download and install them when you quit (the default, and the one to keep for Dia).
+**Settings → Home → Software Update** checks right now. Under **Automatic Updates**, pick for each of Dia and DiaTweaks: off, just show updates, download them, or download and install them when you quit (the default, and the one to keep for Dia). A DiaTweaks you built from source with `install.sh` is never downloaded or replaced automatically: **Update Now** or `diatweaks update` installs the latest release, and automatic updates apply from then on.
 
 - **Dia now:** `diatweaks update-dia`
 - **DiaTweaks now:** `diatweaks update`
@@ -83,7 +96,7 @@ The tweaks only change how Dia looks. **Allow iCloud passkeys** adds a small ext
 <details>
 <summary><strong>How does it work?</strong></summary>
 
-It keeps an untouched copy of Dia and makes a second copy that loads a small add-on. The add-on moves and hides parts of Dia while it runs.
+It keeps an untouched copy of Dia and makes a second copy that loads a small add-on. The add-on changes parts of Dia while it runs. When Dia updates, DiaTweaks patches the new version the same way.
 
 </details>
 
@@ -91,6 +104,13 @@ It keeps an untouched copy of Dia and makes a second copy that loads a small add
 <summary><strong>Why does my Mac ask about "Dia Safe Storage"?</strong></summary>
 
 The tweaked Dia is signed by you instead of The Browser Company, so macOS checks once for each new Dia or DiaTweaks version. Click **Always Allow**.
+
+</details>
+
+<details>
+<summary><strong>Why does screen sharing ask for permission again?</strong></summary>
+
+macOS ties Screen Recording to the app's signature, and the tweaked Dia is signed differently from the original. The first time DiaTweaks patches Dia (and when it goes back to the original), it clears the old permission so macOS asks once for the new one. Switch on **Dia** under **System Settings → Privacy & Security → Screen & System Audio Recording**, then quit and reopen Dia. Dia and DiaTweaks updates keep your permission. If sharing still loops, run `tccutil reset ScreenCapture company.thebrowser.dia` and try again.
 
 </details>
 
@@ -121,7 +141,7 @@ If Dia crashes twice in a row right after opening, it opens next time with the t
 
 ## Uninstall
 
-In Dia, open **Settings → Patches** and click **Restore…**. Dia reopens as the original app with its own updates, and the background job and passkey host are removed.
+In Dia, open **Settings → Home** and click **Restore…**. Dia reopens as the original app with its own updates, and the background job and passkey host are removed.
 
 To also delete DiaTweaks' files and the `diatweaks` command, run `diatweaks restore --purge` instead.
 

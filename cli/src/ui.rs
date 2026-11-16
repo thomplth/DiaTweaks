@@ -9,8 +9,7 @@ use cliclack::{Theme, ThemeState};
 
 use crate::signals::{self, Cancelled};
 
-/// Talks through cliclack in a terminal, and in plain lines for scripts. Output errors are ignored:
-/// a closed pipe or terminal must not abort a step halfway.
+/// Output errors are ignored: a closed pipe must not abort a step halfway.
 pub struct Ui {
     pub interactive: bool,
     pub yes: bool,
@@ -80,7 +79,6 @@ impl Ui {
         }
     }
 
-    /// The last line of a finished command; inside the menu the session goes on.
     pub fn done(&self, message: impl Display) {
         match (self.framed.get(), self.in_menu.get()) {
             (true, true) => drop(cliclack::log::success(message)),
@@ -113,7 +111,6 @@ impl Ui {
         Spinner { bar, label }
     }
 
-    /// Asks before doing what the command is for. Scripts asked for it by running the command.
     pub fn proceed(&self, question: impl Display) -> Result<bool> {
         if self.yes || !self.interactive {
             return Ok(true);
@@ -121,7 +118,6 @@ impl Ui {
         prompt(cliclack::confirm(question).initial_value(true).interact())
     }
 
-    /// Asks about something extra. Without a terminal the answer is no, unless --yes.
     pub fn choose(&self, question: impl Display, default: bool) -> Result<bool> {
         if self.yes {
             return Ok(true);
@@ -137,8 +133,6 @@ impl Ui {
     }
 }
 
-/// cliclack closes a cancelled prompt with "└  Operation cancelled.", which would end the frame
-/// before the menu goes on or diatweaks says what cancelling left behind.
 struct Frame;
 
 impl Theme for Frame {
@@ -152,8 +146,6 @@ impl Theme for Frame {
     }
 }
 
-/// A cancelled prompt, Esc and Ctrl-C alike, becomes `Cancelled`; so does any prompt a signal
-/// interrupted, such as one whose terminal closed.
 pub fn prompt<T>(result: io::Result<T>) -> Result<T> {
     let cancelled = match &result {
         Ok(_) => false,
@@ -176,7 +168,6 @@ fn complain(message: impl Display) {
     let _ = writeln!(io::stderr().lock(), "{message}");
 }
 
-/// A step in progress. Without a terminal it stays quiet until the step is done.
 pub struct Spinner {
     bar: Option<cliclack::ProgressBar>,
     label: String,
@@ -196,7 +187,6 @@ impl Spinner {
         }
     }
 
-    /// Marks the step as failed or cancelled; the caller reports why.
     pub fn check<T>(&self, result: Result<T>) -> Result<T> {
         result.map_err(|err| self.fail(err))
     }

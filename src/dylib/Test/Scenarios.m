@@ -1,4 +1,3 @@
-// All off, all on, each on its own, then pairwise combinations that `requires` allows.
 #import "Test/Test.h"
 
 static NSUInteger DPIndex(DPPatch *patch) {
@@ -23,7 +22,6 @@ NSString *DPBits(const int8_t *state) {
 
 static NSUInteger DPPair(NSUInteger i, BOOL a, NSUInteger j, BOOL b) { return ((i * DPPatchCount + j) * 2 + a) * 2 + b; }
 
-// How many uncovered pairs setting patch k would cover, against the patches already decided (state -1: undecided).
 static int DPGain(const int8_t *state, const BOOL *uncovered, NSUInteger k, BOOL on) {
     int gain = 0;
     for (NSUInteger m = 0; m < DPPatchCount; m++)
@@ -31,7 +29,6 @@ static int DPGain(const int8_t *state, const BOOL *uncovered, NSUInteger k, BOOL
     return gain;
 }
 
-// [name, one '0' or '1' per patch in DPPatches order]
 NSMutableArray<NSArray<NSString *> *> *DPScenarios(void) {
     NSUInteger n = DPPatchCount;
     NSMutableArray<NSArray<NSString *> *> *scenarios = [NSMutableArray new];
@@ -55,7 +52,6 @@ NSMutableArray<NSArray<NSString *> *> *DPScenarios(void) {
         add([DPPatches[i]->key stringByAppendingString:@" alone"], state);
     }
 
-    // Every two patches, in each on/off combination `requires` allows.
     BOOL uncovered[n * n * 4];
     memset(uncovered, 0, sizeof uncovered);
     for (NSUInteger i = 0; i < n; i++)
@@ -64,7 +60,6 @@ NSMutableArray<NSArray<NSString *> *> *DPScenarios(void) {
                 for (int b = 0; b < 2; b++)
                     uncovered[DPPair(i, a, j, b)] = !DPPatches[i]->unavailable && !DPPatches[j]->unavailable
                         && !(a && !b && DPNeeds(DPPatches[i], DPPatches[j])) && !(b && !a && DPNeeds(DPPatches[j], DPPatches[i]));
-    // Greedy: start from an uncovered pair, then give each other patch the value that covers the most pairs not seen yet.
     NSUInteger pairwise = 0;
     for (NSUInteger pair = 0; pair < n * n * 4; pair++) {
         if (!uncovered[pair]) continue;

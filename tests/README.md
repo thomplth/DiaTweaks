@@ -1,3 +1,7 @@
+# Mouse navigation
+
+`make check` runs `tests/mouse-back-forward.m` without Dia. It captures the patch's installed AppKit event monitor and sends fixture events through it, using the real page-registration hook. It checks side-button filtering, one navigation per release, history boundaries, split-page targeting, sidebar focus, hidden and occluded pages, missing windows, weak page ownership and toggling off. It also reproduces SteerMouse's windowless, discrete Back/Forward swipes, including coordinate conversion, and leaves vertical and phased gestures alone.
+
 # Toolbar and restyle performance
 
 Run `tests/performance` on macOS with Command Line Tools installed. It builds the same AppKit fixtures against upstream base `9d5a570` and the current sources. An optional first argument selects another baseline commit.

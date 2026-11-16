@@ -2,24 +2,20 @@
 #import "Updates/Updates.h"
 #include <spawn.h>
 
-// 1Password's helper turns the patched Dia away, so diapatch stands in and relays through the original Dia.
-
 extern DPPatch DPOnePassword;
 
 static const char *DPDiapatch(void) {
     static char path[PATH_MAX];
     static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        NSString *diapatch = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject
-            stringByAppendingPathComponent:@"DiaPatches/bin/diapatch"];
-        strlcpy(path, diapatch.fileSystemRepresentation, sizeof path);
-    });
+    dispatch_once(&once, ^{ strlcpy(path, DPAppSupport(@"DiaPatches/bin/diapatch").fileSystemRepresentation, sizeof path); });
     return path;
 }
 
 static int DPSpawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *files, const posix_spawnattr_t *attrs, char *const argv[], char *const envp[]) {
     const char *name = path ? strrchr(path, '/') : NULL;
-    if (!DPOnePassword.on || !name || strcmp(name, "/1Password-BrowserSupport")) return posix_spawn(pid, path, files, attrs, argv, envp);
+    if (!name || strcmp(name, "/1Password-BrowserSupport")) return posix_spawn(pid, path, files, attrs, argv, envp);
+    // Refuse when off: a helper started for the patched Dia waits forever, even after Dia quits.
+    if (!DPOnePassword.on) return ENOENT;
     if (!DPCLITrusted()) return EPERM;
     int argc = 0;
     while (argv[argc]) argc++;
@@ -33,12 +29,19 @@ __attribute__((used, section("__DATA,__interpose"))) static const struct { const
     (const void *)DPSpawn, (const void *)posix_spawn
 };
 
+static NSString *DPOnePasswordProblem(DPPatch *patch) {
+    NSString *host = DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.1password.1password.json");
+    if (!DPTesting && ![NSFileManager.defaultManager fileExistsAtPath:host]) return @"The 1Password app isn’t installed, or hasn’t set up its browser support yet. Open 1Password, then try again.";
+    return DPRelayProblem();
+}
+
 DP_PATCH(DPOnePassword) {
     .key = @"onePassword",
     .order = 102,
     .title = @"Allow 1Password",
-    .detail = @"Connect the 1Password extension to the 1Password app. The app turns away a patched Dia, so while the extension is connected, the original Dia that DiaTweaks keeps runs in the background to talk to it. Experimental.",
+    .detail = @"Connect the 1Password extension to the 1Password app. The app turns away a patched Dia, so each time the extension connects, the original Dia runs hidden for a moment to start the app’s helper, then quits. Experimental.",
     .symbol = @"lock.shield.fill",
     .tint = @"systemGreenColor",
     .section = @"Passwords",
+    .ready = DPOnePasswordProblem,
 };

@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/.."
+manifest=build/patches.json
+[ -f "$manifest" ] || { echo "$manifest is missing: run make first" >&2; exit 1; }
+symbols=$(plutil -extract patches json -o - "$manifest" | python3 -c '
+import json, sys
+for p in json.load(sys.stdin): print(p["symbol"] or "")
+'; grep -rhoE 'imageWithSystemSymbolName:@"[^"]+"|DPCommandItem\([^;]*, @"[a-z0-9.]+", \^' src/dylib | grep -oE '@"[a-z0-9. ]+"' | tr -d '@"')
+missing=$(printf '%s\n' "$symbols" | sort -u | osascript -l JavaScript -e '
+ObjC.import("AppKit")
+function run(argv) {
+    const lines = $.NSString.alloc.initWithDataEncoding($.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile, 4).js.split("\n")
+    return lines.filter(line => line && !line.split(" ").some(name => $.NSImage.imageWithSystemSymbolNameAccessibilityDescription(name, $()).isNil() === false)).join("\n")
+}')
+python3 - "$manifest" "$missing" <<'PY'
+import json, sys
+patches = {p["key"]: p for p in json.load(open(sys.argv[1]))["patches"]}
+problems = [f'no SF Symbol called "{name}"' for name in sys.argv[2].split("\n") if name]
+
+def root(patch):
+    while patch["requires"]:
+        patch = patches[patch["requires"]]
+    return patch
+
+tints = {}
+for patch in patches.values():
+    if not patch["requires"]:
+        tints.setdefault(patch["section"], {}).setdefault(patch["tint"], []).append(patch["key"])
+    elif patch["tint"] != root(patch)["tint"]:
+        problems.append(f'{patch["key"]} is {patch["tint"]}, but its tweak {root(patch)["key"]} is {root(patch)["tint"]}')
+    if len(patch["detail"]) > 280:
+        problems.append(f'{patch["key"]}\'s description is {len(patch["detail"])} characters: keep it under 280 and put the rest on its wiki page')
+for section, by_tint in tints.items():
+    if len(by_tint) > 1:
+        problems.append(f'{section} mixes colors: ' + "; ".join(f'{tint} for {", ".join(keys)}' for tint, keys in by_tint.items()))
+for problem in problems:
+    print(problem, file=sys.stderr)
+if not problems:
+    print(f"all {len(patches)} tweaks match their sections")
+sys.exit(1 if problems else 0)
+PY

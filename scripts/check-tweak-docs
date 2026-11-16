@@ -1,5 +1,4 @@
 #!/bin/sh
-# Fails unless every patch in build/patches.json has a wiki page and a link to it in the wiki's sidebar. Run after make.
 set -eu
 cd "$(dirname "$0")/.."
 manifest=build/patches.json

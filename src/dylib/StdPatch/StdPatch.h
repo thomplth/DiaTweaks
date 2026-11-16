@@ -1,107 +1,115 @@
-// StdPatch: the toolkit every patch is built on. This header is the whole API.
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import "StdPatch/Dia.h"
 
-#pragma mark Patches
-
 typedef struct DPPatch DPPatch;
 struct DPPatch {
-    __unsafe_unretained NSString *key;  // Its NSUserDefaults key in com.diapatches.
+    __unsafe_unretained NSString *key;
     BOOL defaultOn;
-    int order;  // Places its section in Settings. In a section, the Hide patches go last, shortest title first.
+    int order;
     __unsafe_unretained NSString *title, *detail;
-    __unsafe_unretained NSString *symbol, *tint;  // The row icon's SF Symbol, then space-separated fallbacks for older macOS, and NSColor class property.
-    __unsafe_unretained NSString *section;  // Its group in Settings.
-    __unsafe_unretained NSString *page;     // Its documentation, for a tweak only this fork has; others live on the upstream wiki.
-    const char *const *classes;  // Dia classes it needs (DPClasses). If one is missing, it stays off and Settings says so.
-    const char *const *builtIn;  // Dia classes that mean Dia does this itself (DPClasses). If one exists, it stays off and Settings says so.
-    __unsafe_unretained NSString *requires;    // Key of a patch that must be on. Settings lists this one as an option on that patch's page.
-    __unsafe_unretained NSString *disabledBy;  // Key of a patch that, while on, hides what this one changes. Settings marks it.
-    // A menu on the patch's Settings page, titled by the menu. Items' representedObjects are saved under `choice`.
-    __unsafe_unretained NSString *choice, *defaultChoice;
+    __unsafe_unretained NSString *hint;
+    __unsafe_unretained NSString *symbol, *tint;  // symbol: space-separated fallbacks for older macOS. tint: an NSColor class property.
+    __unsafe_unretained NSString *section;
+    __unsafe_unretained NSString *page;  // Fork-only tweaks link their docs/tweaks page; the upstream wiki can't hold them.
+    const char *const *classes;
+    __unsafe_unretained NSString *requires;
+    __unsafe_unretained NSString *disabledBy;
+    __unsafe_unretained NSString *coveredBy;
+    __unsafe_unretained NSString *choice, *defaultChoice;  // Saved as the chosen item's representedObject.
     NSMenu *(*choices)(void);
-    NSArray<NSView *> *(*rows)(void);  // More rows for the Options on its Settings page, such as sliders.
-    BOOL (*hides)(NSView *view);  // While on, hides every view this matches in Dia's toolbar, sidebar and tab strip.
-    void (*install)(void);        // Runs once at launch whether or not the patch is on; install hooks here.
-    void (*apply)(DPPatch *patch);  // Applies a toggle at once. Without it, `progress` eases toward `on` while every patch's `relayout` runs each frame.
+    NSArray<NSView *> *(*rows)(void);
+    __unsafe_unretained NSString *shortcut, *sharesShortcutWith;
+    NSDictionary *(*defaultShortcut)(void);
+    BOOL (*hides)(NSView *view);
+    void (*install)(void);  // Runs at launch whether or not the patch is on.
+    void (*apply)(DPPatch *patch);  // Without it, `progress` eases toward `on` and every `relayout` runs each frame.
     void (*relayout)(void);
-    // nil if Dia's views match `on`, otherwise a few words on what's wrong. `make test` runs it; hide patches get one.
-    // Find views with DPFindViews rather than through your own hooks, so a hook that never ran shows up as a failure.
+    // nil if Dia's views match `on`, else what's wrong. Use DPFindViews, not your hooks, so a hook that never ran fails.
     NSString *(*verify)(DPPatch *patch);
-    BOOL on, unavailable, inDia;  // inDia: one of `builtIn` exists, which also makes it unavailable.
+    NSString *(*ready)(DPPatch *patch);
+    BOOL on, unavailable;
     CGFloat progress;
 };
 
 #define DPClasses(...) ((const char *const []){__VA_ARGS__, NULL})
 
-// Declares a patch and registers it. A new patch is a new folder in Patches/ and nothing else:
-//     DP_PATCH(DPHideFooButton) { .key = @"hideFooButton", .title = @"Hide Foo button", ... };
 #define DP_PATCH(name)                                                                              \
     DPPatch name;                                                                                   \
     __attribute__((used, section("__DATA,__dppatches"))) static DPPatch *const name##Entry = &name; \
     DPPatch name =
 
-extern DPPatch *const *DPPatches;  // In Settings order.
+extern DPPatch *const *DPPatches;
 extern NSUInteger DPPatchCount;
 DPPatch *DPPatchNamed(NSString *key);
-DPPatch *DPRequired(DPPatch *patch);  // The patch named by `requires`, or NULL.
-void DPSetPatch(DPPatch *patch, BOOL on, BOOL save);  // save: NO changes it only until Dia quits (test mode).
+DPPatch *DPRequired(DPPatch *patch);
+void DPSetPatch(DPPatch *patch, BOOL on, BOOL save);
 BOOL DPSavedOn(DPPatch *patch);
 NSString *DPChoice(DPPatch *patch);
 void DPSetChoice(DPPatch *patch, NSString *value);
-void DPLoadPatches(void);     // Reads every DP_PATCH, what it needs and its saved switch.
-void DPInstallPatches(void);  // Runs the installs of the available ones, and from then on applies settings diatweaks saves.
-BOOL DPWriteManifest(NSString *path);  // patches.json, the patch list diatweaks shows. Reads no settings.
-extern NSNotificationName const DPPatchesDidChangeNotification;  // Posted after a switch in Settings or diatweaks changed patches.
+void DPLoadPatches(void);
+void DPInstallPatches(void);
+BOOL DPWriteManifest(NSString *path);  // Reads no settings.
+NSString *DPAppSupport(NSString *path);
+NSString *DPRelayProblem(void);
+NSString *DPHostProblem(NSString *manifest, NSString *name);
+NSString *DPWriteProblem(NSString *path, NSError *error);
+extern NSNotificationName const DPPatchesDidChangeNotification;
+#define DPLeadingOption @"DPLeadingOption"
+extern BOOL DPTesting;
 
-#pragma mark Hooks
-
-// Replaces -[className sel], usually a name from Dia.h, and logs it if Dia has no such method. Two patches can hook the
-// same method: each replacement's DPCallOriginal calls what was there when it was installed.
 void DPHook(const char *className, SEL sel, IMP replacement);
-void DPHookClass(Class cls, SEL sel, IMP replacement);  // The same for a class in hand, such as a view's own class.
+void DPHookClass(Class cls, SEL sel, IMP replacement);
+IMP DPDiaIMP(Class cls, SEL sel);
 IMP DPOriginalIMP(id object, SEL sel, IMP replacement);
 
-// Inside a hook function `hook`: DPCallOriginal(hook, self, args...) calls what it replaced, typed like the hook.
 #define DPCallOriginal(hook, self, ...) \
     ((__typeof__(&hook))DPOriginalIMP(self, _cmd, (IMP)hook))(self, _cmd, ##__VA_ARGS__)
 
-#pragma mark Views
-
-NSView *DPFindView(NSView *root, BOOL (^match)(NSView *view));  // Depth first, root included.
-NSArray<NSView *> *DPFindViews(const char *className);          // In every visible window.
-NSString *DPTabLayout(void);                                    // @"vertical" or @"horizontal".
-NSView *DPSubview(NSView *parent, const char *className);       // First direct subview of that class.
+NSView *DPFindView(NSView *root, BOOL (^match)(NSView *view));
+NSArray<NSView *> *DPFindViews(const char *className);
+NSString *DPTabLayout(void);
+NSView *DPSubview(NSView *parent, const char *className);
 BOOL DPIsKind(id object, const char *className);
+BOOL DPIsFloatingChat(NSView *popover);
 BOOL DPHasLabel(NSView *view, NSString *accessibilityLabel);
-void DPRelayoutViews(NSHashTable<NSView *> *views);  // Lays each out again now.
-void *DPIvar(id object, const char *name);            // Address of an instance variable, or NULL.
+void DPRelayoutViews(NSHashTable<NSView *> *views);
+// Call before changing a frame during layout: if Dia keeps restoring it, the two loop until AppKit aborts Dia.
+BOOL DPMayAdjust(NSView *view);
+void *DPIvar(id object, const char *name);
+id DPSwiftValue(id object, NSString *key);
+NSArray<NSString *> *DPUUIDsIn(NSString *text);
+NSWindowController *DPOpenTabSwitcher(void);
 
-// In place of a tooltip, a glass bubble that points at the view while the pointer rests on it, like System Settings'.
-// nil takes it away. DPShowHint shows it at once, as for a click.
 void DPSetHint(NSView *view, NSString *text);
 NSString *DPHintOf(NSView *view);
 void DPShowHint(NSView *view);
 
-#pragma mark Values
+NSView *DPShortcutRow(DPPatch *patch);
+BOOL DPShortcutMatches(NSEvent *event, DPPatch *patch);
+BOOL DPShortcutRecording(void);
+BOOL DPEventIsKey(NSEvent *event, NSString *key);
 
 id DPGet(id object, const void *key);
 void DPSet(id object, const void *key, id value);
 
-// Patches override values Dia keeps setting, such as frames, radii and paths. DPOverride remembers Dia's value and
-// ours; DPDiaValue gives back Dia's: the remembered one while `current` is still ours, else `current`, which Dia set since.
 void DPOverride(id object, const void *key, id dia, id ours);
 id DPDiaValue(id object, const void *key, id current);
 
-#pragma mark App
+NSURL *DPAddressURL(NSString *typed);
+
+float DPZoomStep(float now, int direction);
+
+// Chromium reads extensions and launch flags once as Dia starts: call DPLoadExtension and DPAddLaunchFlag from an `install`.
+void DPLoadExtension(NSString *folder);
+void DPAddLaunchFlag(NSString *flag);
+void DPDropLaunchFeature(NSString *feature);  // From a tweak that is off, for a feature it adds when on.
 
 void DPOnLaunch(void (^block)(void));
 void DPOnQuit(void (^block)(void));
 
-// A menu item that runs `action`, for any menu. DPAddMenuItem appends one to a menu in the menu bar by title, nil for
-// the app menu; DPOnMenuItem points Dia's own items at `action`. Menus exist once Dia has launched: call them from DPOnLaunch.
+// Menus exist once Dia has launched: call these from DPOnLaunch.
 NSMenuItem *DPMenuItem(NSString *title, void (^action)(void));
 NSMenuItem *DPAddMenuItem(NSString *menu, NSString *title, void (^action)(void));
 void DPOnMenuItem(NSString *menu, NSString *titlePrefix, void (^action)(void));

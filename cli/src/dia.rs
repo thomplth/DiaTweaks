@@ -15,10 +15,8 @@ use crate::{
     ui::Spinner,
 };
 
-/// The installed diapatch, which does everything that touches Dia's app bundles.
 pub struct Diapatch(PathBuf);
 
-/// `diapatch status --json`. Versions look like "1.55.1 (89833)".
 #[derive(Deserialize)]
 pub struct Status {
     pub official: Option<String>,
@@ -50,7 +48,6 @@ impl Diapatch {
         child::run(Command::new(&self.0).args(args), on_interrupt, spinner)
     }
 
-    /// Also asks Dia's update feed, for up to 15 seconds.
     pub fn status(&self, spinner: &Spinner) -> Result<Status> {
         let done = self.run(&["status", "--json"], OnInterrupt::StopDownloads, spinner)?;
         if signals::interrupted() {
@@ -65,7 +62,6 @@ impl Diapatch {
     }
 }
 
-/// Compares the build numbers the way diapatch does.
 pub fn is_newer(version: &str, than: &str) -> bool {
     numbers(build(version)) > numbers(build(than))
 }
@@ -83,31 +79,35 @@ fn numbers(text: &str) -> Vec<u64> {
         .collect()
 }
 
-/// "1.55.1 (89833)", like diapatch prints it.
+fn dictionary(path: PathBuf) -> Option<plist::Dictionary> {
+    plist::Value::from_file(path).ok()?.into_dictionary()
+}
+
 pub fn version_of(app: &Path) -> Option<String> {
-    let info = plist::Value::from_file(app.join("Contents/Info.plist")).ok()?;
-    let info = info.as_dictionary()?;
+    let info = dictionary(app.join("Contents/Info.plist"))?;
     let short = info.get("CFBundleShortVersionString")?.as_string()?;
     let build = info.get("CFBundleVersion")?.as_string()?;
     Some(format!("{short} ({build})"))
 }
 
 pub fn is_patched(app: &Path) -> bool {
-    plist::Value::from_file(app.join("Contents/Info.plist"))
-        .ok()
-        .and_then(|info| info.as_dictionary()?.get("DiaPatches")?.as_boolean())
+    dictionary(app.join("Contents/Info.plist"))
+        .and_then(|info| info.get("DiaPatches")?.as_boolean())
         .unwrap_or(false)
 }
 
-/// 0 normally; 1 or 2 after Dia quit unexpectedly right after opening (see SafeMode.m).
 pub fn safe_mode(support: &Path) -> i64 {
-    plist::Value::from_file(support.join("safe-mode.plist"))
-        .ok()
-        .and_then(|state| state.as_dictionary()?.get("level")?.as_signed_integer())
+    dictionary(support.join("safe-mode.plist"))
+        .and_then(|state| state.get("level")?.as_signed_integer())
         .unwrap_or(0)
 }
 
-/// Dia's processes, helpers included: everything running from inside the app bundle.
+pub fn safe_mode_parked(support: &Path) -> bool {
+    dictionary(support.join("safe-mode.plist"))
+        .and_then(|state| state.get("steppedDown")?.as_boolean())
+        .unwrap_or(false)
+}
+
 fn processes(app: &Path) -> Vec<(libc::pid_t, PathBuf)> {
     let Ok(root) = app.canonicalize() else {
         return Vec::new();
@@ -123,8 +123,7 @@ pub fn is_running(app: &Path) -> bool {
     !processes(app).is_empty()
 }
 
-/// Quits Dia the way ⌘Q does, so it saves its windows, and waits for every Dia process to end.
-/// Only the Dia at `app` is asked, by process ID, in case another copy is open.
+/// By process ID, as ⌘Q would: SIGTERM looks like a crash to safe mode, and another Dia may be open.
 pub fn quit(app: &Path) -> Result<()> {
     let macos = app.canonicalize()?.join("Contents/MacOS");
     for (pid, path) in processes(app) {

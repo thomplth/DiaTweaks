@@ -1,5 +1,6 @@
 #import "Settings.h"
 #import <AVFoundation/AVFoundation.h>
+#import <ImageIO/ImageIO.h>
 #import <VideoToolbox/VideoToolbox.h>
 
 #ifndef DP_PREVIEWS
@@ -8,7 +9,6 @@
 
 static NSNotificationName const DPTabLayoutMayHaveChanged = @"DPTabLayoutMayHaveChanged";
 
-// The sidebar footer only exists with vertical tabs.
 static void DPSidebarFooter_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPSidebarFooter_viewDidMoveToWindow, self);
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -27,27 +27,39 @@ static NSURL *DPCachedPreview(NSString *name) {
     return [dir URLByAppendingPathComponent:name];
 }
 
-static NSArray<NSString *> *DPPreviewNames(NSString *key) {
-    NSString *layout = DPTabLayout(), *other = [layout isEqual:@"vertical"] ? @"horizontal" : @"vertical";
+static NSArray<NSString *> *DPPreviewNames(NSString *key, NSString *layout) {
+    NSString *other = [layout isEqual:@"vertical"] ? @"horizontal" : @"vertical";
     NSMutableArray<NSString *> *names = [NSMutableArray new];
     for (NSString *prefix in @[layout, other])
         for (NSString *suffix in @[@"-onoff.webp", @".mp4", @".png"]) [names addObject:[NSString stringWithFormat:@"%@-%@%@", prefix, key, suffix]];
     return names;
 }
 
-// Calls `done` with the first of `names` the wiki has, cached, or nil if it has none or the download failed.
+static BOOL DPIsPreview(NSData *data, NSString *name) {
+    if (data.length < 8) return NO;
+    if ([name hasSuffix:@".mp4"]) return !memcmp((const char *)data.bytes + 4, "ftyp", 4);
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    CGImageRef image = source ? CGImageSourceCreateImageAtIndex(source, 0, NULL) : NULL;
+    BOOL decoded = image != NULL;
+    CGImageRelease(image);
+    if (source) CFRelease(source);
+    return decoded;
+}
+
 static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file, BOOL changed)) {
     if (!names.count) return done(nil, NO);
     NSURL *cached = DPCachedPreview(names[0]);
     NSURL *url = [NSURL URLWithString:[@DP_PREVIEWS stringByAppendingString:names[0]]];
     [[NSURLSession.sharedSession dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        BOOL preview = status == 200 && DPIsPreview(data, names[0]);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error || (status != 200 && status != 404)) return done(nil, NO);
             if (status == 404) {
                 [NSFileManager.defaultManager removeItemAtURL:cached error:nil];
                 return DPFetchPreview([names subarrayWithRange:NSMakeRange(1, names.count - 1)], done);
             }
+            if (!preview) return done(nil, NO);
             BOOL changed = ![[NSData dataWithContentsOfURL:cached] isEqualToData:data];
             if (changed) [data writeToURL:cached atomically:YES];
             done(cached, changed);
@@ -70,8 +82,9 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
 + (void)preload {
     static NSMutableSet<NSString *> *started;
     if (!started) started = [NSMutableSet new];
+    NSString *layout = DPTabLayout();
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
-        NSArray<NSString *> *names = DPPreviewNames(DPPatches[i]->key);
+        NSArray<NSString *> *names = DPPreviewNames(DPPatches[i]->key, layout);
         if ([started containsObject:names[0]]) continue;
         [started addObject:names[0]];
         DPFetchPreview(names, ^(NSURL *file, BOOL changed) {});
@@ -81,7 +94,7 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
 - (instancetype)initWithKey:(NSString *)key {
     if (!(self = [super initWithFrame:NSZeroRect])) return nil;
     _key = key;
-    self.hidden = YES;  // A tweak without a preview on the wiki goes without one.
+    self.hidden = YES;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(load) name:DPTabLayoutMayHaveChanged object:nil];
     [self load];
     return self;
@@ -91,7 +104,7 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     NSString *layout = DPTabLayout();
     if ([layout isEqual:_layout]) return;
     _layout = layout;
-    NSArray<NSString *> *names = _names = DPPreviewNames(_key);
+    NSArray<NSString *> *names = _names = DPPreviewNames(_key, layout);
     for (NSString *name in names)
         if ([DPCachedPreview(name) checkResourceIsReachableAndReturnError:nil]) {
             [self show:DPCachedPreview(name)];
@@ -124,12 +137,14 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     _media.contentsGravity = kCAGravityResizeAspectFill;
     _media.frame = self.bounds;
     [self.layer addSublayer:_media];
-    // An on/off preview is one image with the tweak off above it on, shown a half at a time.
+    // Off in the top half, on in the bottom.
     if ([file.lastPathComponent hasSuffix:@"-onoff.webp"]) {
         CGImageRef image = [[[NSImage alloc] initWithContentsOfURL:file] CGImageForProposedRect:NULL context:nil hints:nil];
         size_t width = CGImageGetWidth(image), half = CGImageGetHeight(image) / 2;
-        _states = @[ (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, 0, width, half)),
-                     (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, half, width, half)) ];
+        id off = (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, 0, width, half));
+        id on = (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, half, width, half));
+        if (!off || !on) return [self show:nil];
+        _states = @[ off, on ];
         [self showState];
         [self updatePlayback];
         return;
@@ -160,7 +175,6 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     [self updatePlayback];
 }
 
-// Off on even seconds and on on odd ones, so every preview flips at the same moment.
 - (void)showState {
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
@@ -168,7 +182,6 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     [CATransaction commit];
 }
 
-// Otherwise a covered, hidden or closed Settings window keeps decoding video nobody sees.
 - (void)updatePlayback {
     [_link invalidate];
     _link = nil;

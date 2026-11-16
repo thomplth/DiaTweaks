@@ -1,6 +1,5 @@
 use std::{path::Path, process::Command};
 
-// `diatweaks update` compares this with the newest commit to tell whether there's anything new.
 fn main() {
     let commit = git(&["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=DIATWEAKS_COMMIT={commit}");

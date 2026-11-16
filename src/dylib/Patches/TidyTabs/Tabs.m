@@ -1,8 +1,6 @@
 #import "TidyTabs.h"
 #import "Commands/GroupTabs/GroupTabs.h"
 
-// How many list items sit above Dia's divider in this window's sidebar: the pinned tabs. Read from the collection
-// view's layout, which knows every row, not just the ones on screen. 0 when there's no divider.
 static NSInteger DPTidyPinnedRows(NSWindow *window) {
     for (NSView *list in DPFindViews(DPDiaTabList)) {
         if (list.window != window || list.hiddenOrHasHiddenAncestor) continue;
@@ -15,21 +13,20 @@ static NSInteger DPTidyPinnedRows(NSWindow *window) {
             for (NSInteger item = 0; item < [collection numberOfItemsInSection:section]; item++) {
                 NSIndexPath *path = [NSIndexPath indexPathForItem:item inSection:section];
                 NSCollectionViewLayoutAttributes *attrs = [collection.collectionViewLayout layoutAttributesForItemAtIndexPath:path];
-                if (attrs && NSMaxY(attrs.frame) <= line + 0.5) above++;
+                // Folded, Collapse Pinned Tabs moves pinned rows below the line and hides them.
+                if (attrs && (attrs.hidden || attrs.alpha < 1 || NSMaxY(attrs.frame) <= line + 0.5)) above++;
             }
         return above;
     }
     return 0;
 }
 
-// The front window's tabs below the divider, by URL, with their titles. Scripting lists tabs in sidebar order:
-// favorites (isPinned), then the pinned tabs above the divider, then the rest. A URL open both above and below the
-// divider is left out, since Chromium's tabs, which carry the sessions, can't tell those apart.
+// Scripting lists favorites, then pinned tabs, then the rest; a URL on both sides of the divider is dropped.
 NSDictionary<NSString *, NSString *> *DPTidyLooseTabs(NSWindow *window) {
     NSArray *tabs = nil;
     for (id each in DPMsg(NSApp.delegate, @selector(appleScriptWindows))) {
         tabs = [each respondsToSelector:@selector(appleScriptTabs)] ? DPMsg(each, @selector(appleScriptTabs)) : nil;
-        if ([tabs isKindOfClass:NSArray.class]) break;  // Front to back, so the first is the front window.
+        if ([tabs isKindOfClass:NSArray.class]) break;
     }
     NSInteger pinnedRows = DPTidyPinnedRows(window);
     NSMutableDictionary<NSString *, NSString *> *loose = [NSMutableDictionary dictionary];
@@ -46,7 +43,6 @@ NSDictionary<NSString *, NSString *> *DPTidyLooseTabs(NSWindow *window) {
     return loose;
 }
 
-// The site and path, without the query or fragment, which are mostly tracking and session noise: "apple.com/iphone-duo".
 NSString *DPTidyAddress(NSString *url, NSString *host) {
     NSString *path = [NSURL URLWithString:url].path ?: @"";
     while ([path hasSuffix:@"/"]) path = [path substringToIndex:path.length - 1];

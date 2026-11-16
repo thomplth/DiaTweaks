@@ -4,7 +4,6 @@ static const CGFloat DPToastHeight = 30, DPToastInset = 10, DPToastDrop = 8;
 static const NSTimeInterval DPToastFade = 0.2, DPToastHold = 1.4;
 static char DPToastKey;
 
-// A pill at the top of the pane that says what was copied, then goes away. It never takes the pointer.
 @interface DPCopyToastView : NSVisualEffectView
 @property (nonatomic, strong) NSTextField *label;
 @property (nonatomic, strong) NSTimer *hideTimer;
@@ -50,10 +49,9 @@ static char DPToastKey;
 
 - (void)updateLayer {
     [super updateLayer];
-    self.layer.borderColor = [NSColor.separatorColor CGColor];  // Follows light and dark.
+    self.layer.borderColor = [NSColor.separatorColor CGColor];
 }
 
-// Centered at the top of the pane, `drop` points above where it rests.
 - (NSRect)frameInPane:(NSView *)pane drop:(CGFloat)drop {
     CGFloat width = ceil(self.fittingSize.width), top = DPToastInset - drop;
     CGFloat y = pane.isFlipped ? top : NSHeight(pane.bounds) - top - DPToastHeight;
@@ -73,13 +71,13 @@ static char DPToastKey;
     self.label.stringValue = message;
     [self.hideTimer invalidate];
     if (self.superview != pane) self.frame = [self frameInPane:pane drop:DPToastDrop];
-    [pane addSubview:self positioned:NSWindowAbove relativeTo:nil];  // Over the page, and over the toolbar if it shows.
+    [pane addSubview:self positioned:NSWindowAbove relativeTo:nil];
     [self animateTo:YES in:pane completion:nil];
     __weak DPCopyToastView *weakSelf = self;
     self.hideTimer = [NSTimer scheduledTimerWithTimeInterval:DPToastFade + DPToastHold repeats:NO block:^(NSTimer *timer) {
         [weakSelf animateTo:NO in:pane completion:^{
             DPCopyToastView *me = weakSelf;
-            if (me.alphaValue == 0) [me removeFromSuperview];  // Unless another copy brought it back.
+            if (me.alphaValue == 0) [me removeFromSuperview];
         }];
     }];
 }
@@ -89,20 +87,4 @@ void DPShowCopyToast(NSView *pane, NSString *message) {
     DPCopyToastView *toast = DPGet(pane, &DPToastKey);
     if (!toast) DPSet(pane, &DPToastKey, toast = [DPCopyToastView new]);
     [toast showMessage:message in:pane];
-}
-
-void DPRemoveCopyToasts(void) {
-    for (NSView *pane in DPPanes) {
-        DPCopyToastView *toast = DPGet(pane, &DPToastKey);
-        [toast.hideTimer invalidate];
-        [toast removeFromSuperview];
-        toast.alphaValue = 0;
-    }
-}
-
-NSString *DPVerifyNoCopyToast(DPPatch *patch) {
-    for (NSView *pane in DPFindViews(DPDiaContentPane))
-        for (NSView *view in pane.subviews)
-            if ([view isKindOfClass:DPCopyToastView.class] && !patch->on) return @"toast left on the page";
-    return nil;
 }

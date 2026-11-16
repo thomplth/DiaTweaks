@@ -1,18 +1,21 @@
-// Each request runs in the unpatched Dia, in a window the size of the passkey sheet so the sheet hides it.
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
+#import <pthread.h>
 #import <spawn.h>
 #import <sys/file.h>
 #import <sys/stat.h>
 #import <sys/wait.h>
+#import "LaunchServices.h"
 #import "Passkeys.h"
 
 extern char **environ;
-int responsibility_spawnattrs_setdisclaim(posix_spawnattr_t *attrs, int disclaim);  // private: macOS then asks about the copy, not Dia
+int responsibility_spawnattrs_setdisclaim(posix_spawnattr_t *attrs, int disclaim);  // private: macOS asks about the copy, not Dia
 
 static const int kSheetWidth = 480, kSheetHeight = 300;
 
 static FILE *gFromHelper, *gToHelper;
+static _Atomic pid_t gHelper;
+static _Atomic int gCancelled;
 
 static NSDictionary *readFromHelper(void) {
     NSMutableData *data = [NSMutableData data];
@@ -60,6 +63,19 @@ static void writeMessage(NSDictionary *message) {
 
 static NSDictionary *failure(NSString *message) { return @{ @"error" : @{ @"name" : @"NotAllowedError", @"message" : message } }; }
 
+// The extension holds our stdin open until it has the answer, so EOF means the page gave up.
+static void *watchForCancel(void *_) {
+    char byte;
+    while (read(STDIN_FILENO, &byte, 1) > 0) {}
+    gCancelled = 1;
+    pid_t helper = gHelper;
+    if (helper <= 0) return NULL;
+    kill(helper, SIGTERM);
+    for (int i = 0; i < 30 && gHelper == helper; i++) usleep(100000);
+    if (gHelper == helper) kill(helper, SIGKILL);
+    return NULL;
+}
+
 static NSArray<NSString *> *accountStore(void) { return @[ @"global_key_value_store.db", @"global_key_value_store.db-wal", @"global_key_value_store.db-shm" ]; }
 
 static NSArray *modificationDates(NSString *folder) {
@@ -69,7 +85,7 @@ static NSArray *modificationDates(NSString *folder) {
     return dates;
 }
 
-// Dia may be writing to its account store, so it's copied until the files hold still.
+// Dia may be writing its account store: copy until the files hold still.
 static void signInAsDia(NSString *userData) {
     NSFileManager *files = NSFileManager.defaultManager;
     NSString *dia = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Dia/User Data"];
@@ -153,7 +169,6 @@ static BOOL hasWindowOnScreen(pid_t pid) {
 
 typedef NS_ENUM(int, DPStartup) { DPStartupReady, DPStartupSignedOut, DPStartupFailed };
 
-// Signed out, Dia shows its intro: a window of its own that no tab lives in.
 static DPStartup waitForStartupTab(pid_t pid, int seconds, NSString **targetId, NSNumber **windowId) {
     for (int tries = 0, tablessWindow = 0; tries < seconds * 4; tries++, usleep(250000)) {
         NSDictionary *targets = send(@"Target.getTargets", nil, nil);
@@ -220,7 +235,7 @@ static NSDictionary *runInHelper(pid_t pid, NSString *kind, NSString *origin, id
     if (!arrived) return failure(@"The site sent the passkey copy of Dia somewhere else.");
     evaluate(session, page(@"Use your passkey for {site}", @"DiaTweaks opened this window to reach Apple Passwords. It closes by itself."));
     tellDia(@"show", pid);
-    // WebAuthn refuses a page without focus, which it only gets once Dia has brought the copy forward.
+    // WebAuthn refuses an unfocused page, and focus comes once Dia has brought the copy forward.
     for (int tries = 0; tries < 30; tries++, usleep(100000))
         if ([evaluate(session, @"document.hasFocus()") boolValue]) break;
 
@@ -261,13 +276,19 @@ int DPRunPasskeyHost(NSString *home) {
     NSString *origin = canonicalOrigin(request[@"origin"]);
     if (!origin || ![@[ @"create", @"get" ] containsObject:request[@"kind"]] || ![request[@"options"] isKindOfClass:NSDictionary.class])
         return writeMessage(failure(@"DiaTweaks refused a malformed passkey request.")), 1;
+    pthread_t watcher;
+    if (pthread_create(&watcher, NULL, watchForCancel, NULL) == 0) pthread_detach(watcher);
     // A second copy started on the same data hands off to the first and quits.
-    flock(open([home stringByAppendingPathComponent:@"passkey-helper.lock"].fileSystemRepresentation, O_CREAT | O_RDWR, 0600), LOCK_EX);
+    int lock = open([home stringByAppendingPathComponent:@"passkey-helper.lock"].fileSystemRepresentation, O_CREAT | O_RDWR, 0600);
+    while (flock(lock, LOCK_EX | LOCK_NB) != 0 && errno == EWOULDBLOCK && !gCancelled) usleep(50000);
+    if (gCancelled) return writeMessage(failure(@"The passkey request was cancelled.")), 0;
 
     int toHelper[2], fromHelper[2];
     pid_t pid = 0;
     if (pipe(toHelper) || pipe(fromHelper) || !(pid = launchHelper(home, toHelper, fromHelper)))
         return writeMessage(failure(@"Couldn't start the passkey copy of Dia.")), 1;
+    gHelper = pid;
+    if (gCancelled) kill(pid, SIGTERM);  // it came between the copy starting and gHelper being set
     close(toHelper[0]);
     close(fromHelper[1]);
 
@@ -277,7 +298,9 @@ int DPRunPasskeyHost(NSString *home) {
     // Dia kills this process once it has the answer, so the copy has to quit before then.
     send(@"Browser.close", nil, nil);
     for (int i = 0; i < 50 && waitpid(pid, NULL, WNOHANG) == 0; i++) usleep(100000);
+    gHelper = 0;
     kill(pid, SIGKILL);
+    DPForgetApp([home stringByAppendingPathComponent:@"pristine/Dia.app"]);
     writeMessage(result);
     return 0;
 }

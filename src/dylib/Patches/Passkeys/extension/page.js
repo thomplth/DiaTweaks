@@ -22,7 +22,7 @@
     return value;
   };
 
-  // Writable like a real credential's, whose fields come from its prototype: sites' libraries assign over some, such as toJSON.
+  // Writable: sites' libraries assign over some fields, such as toJSON.
   const own = (proto, fields) =>
     Object.defineProperties(Object.create(proto), Object.fromEntries(Object.entries(fields).map(([k, value]) => [k, { value, enumerable: true, writable: true, configurable: true }])));
 
@@ -54,26 +54,37 @@
     });
   };
 
-  const ask = (kind, options) =>
+  const ask = (kind, options, signal) =>
     new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(signal.reason);
       if (pending) return reject(new DOMException('A request is already pending.', 'OperationError'));
       pending = true;
       const id = ++nextId;
+      const finish = () => {
+        window.removeEventListener('message', listen);
+        signal?.removeEventListener('abort', abort);
+        pending = false;
+      };
       const listen = (event) => {
         if (event.source !== window || event.data?.diaTweaksPasskey !== 'response' || event.data.id !== id) return;
-        window.removeEventListener('message', listen);
-        pending = false;
+        finish();
         const { credential, error } = event.data.response ?? {};
         if (credential) resolve(toCredential(credential));
         else reject(new DOMException(error?.message ?? 'The passkey request failed.', error?.name ?? 'NotAllowedError'));
       };
+      const abort = () => {
+        finish();
+        window.postMessage({ diaTweaksPasskey: 'cancel', id }, '*');
+        reject(signal.reason);
+      };
+      signal?.addEventListener('abort', abort);
       window.addEventListener('message', listen);
       window.postMessage({ diaTweaksPasskey: 'request', id, kind, options: toJSON(options) }, '*');
     });
 
   // Autofill would start the other Dia on every page load.
-  credentials.create = (options) => (options?.publicKey ? ask('create', options.publicKey) : create(options));
-  credentials.get = (options) => (options?.publicKey && options.mediation !== 'conditional' ? ask('get', options.publicKey) : get(options));
+  credentials.create = (options) => (options?.publicKey ? ask('create', options.publicKey, options.signal) : create(options));
+  credentials.get = (options) => (options?.publicKey && options.mediation !== 'conditional' ? ask('get', options.publicKey, options.signal) : get(options));
   PublicKeyCredential.isConditionalMediationAvailable = () => Promise.resolve(false);
   PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = () => Promise.resolve(true);
 })();

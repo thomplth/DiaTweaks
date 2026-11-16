@@ -5,12 +5,30 @@ void DPOnLaunch(void (^block)(void)) {
                                                 usingBlock:^(NSNotification *_) { block(); }];
 }
 
-void DPOnQuit(void (^block)(void)) {
-    [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillTerminateNotification object:nil queue:nil
-                                                usingBlock:^(NSNotification *_) { block(); }];
+// Dia posts no WillTerminate on a normal quit, only atexit runs; each block runs once, on whichever comes first.
+static NSMutableArray<void (^)(void)> *DPQuitBlocks;
+
+static void DPRunQuitBlocks(void) {
+    NSArray<void (^)(void)> *blocks;
+    @synchronized(DPQuitBlocks) {
+        blocks = [DPQuitBlocks copy];
+        [DPQuitBlocks removeAllObjects];
+    }
+    for (void (^block)(void) in blocks) block();
 }
 
-// Menu items hold their target weakly, so each item keeps its own in representedObject.
+void DPOnQuit(void (^block)(void)) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        DPQuitBlocks = [NSMutableArray new];
+        [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillTerminateNotification object:nil queue:nil
+                                                    usingBlock:^(NSNotification *_) { DPRunQuitBlocks(); }];
+        atexit(DPRunQuitBlocks);
+    });
+    @synchronized(DPQuitBlocks) { [DPQuitBlocks addObject:[block copy]]; }
+}
+
+// Menu items hold their target weakly; representedObject keeps it alive.
 @interface DPMenuAction : NSObject
 @property (nonatomic, copy) void (^action)(void);
 @end

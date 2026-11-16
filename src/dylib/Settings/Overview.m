@@ -2,10 +2,10 @@
 
 @interface DPOverviewView ()
 @property (nonatomic, strong) NSMapTable<DPPatchSwitch *, NSTextField *> *notes;
-@property (nonatomic, strong) NSMutableArray<NSArray *> *sections;  // header, group, rows
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *sectionHiders;  // "" when its tweaks don't share one
+@property (nonatomic, strong) NSMutableArray<NSArray *> *sections;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *sectionHiders;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSImageView *> *sectionEyes;
-@property (nonatomic, strong) NSTextField *noResults, *notice;
+@property (nonatomic, strong) NSTextField *noResults;
 @end
 
 @implementation DPOverviewView
@@ -36,7 +36,6 @@
         self.sectionHiders[section] = !shared || [shared isEqual:hider] ? hider : @"";
         add(section, [self rowForPatch:patch]);
     }
-    for (NSView *row in [self makeUpdateRows]) add(@"Updates", row);
 
     NSMutableArray<NSView *> *views = [NSMutableArray new];
     for (NSString *title in titles) {
@@ -55,10 +54,21 @@
         [self.sections addObject:@[header, group, rows[title]]];
     }
     self.noResults = DPLabel(@"No Results", 13, NSFontWeightRegular, NSColor.secondaryLabelColor);
-    self.notice = DPLabel(@"DiaPatches is unofficial and not affiliated with The Browser Company.", 11, NSFontWeightRegular, NSColor.tertiaryLabelColor);
-    DPFillStack(self, [views arrayByAddingObjectsFromArray:@[self.noResults, self.notice]]);
+    DPFillStack(self, [views arrayByAddingObject:self.noResults]);
     [self syncWithQuery:@""];
     return self;
+}
+
+- (NSView *)makeSafeModeRow {
+    NSView *row = DPRow(DPLabel(@"Patches are off because Dia quit unexpectedly right after opening.", 13, NSFontWeightRegular, NSColor.labelColor),
+                        [NSButton buttonWithTitle:@"Turn Patches Back On" target:self action:@selector(leaveSafeMode:)]);
+    [self.searchText setObject:@"Safe mode patches off crashed quit unexpectedly turn back on" forKey:row];
+    return row;
+}
+
+- (void)leaveSafeMode:(id)sender {
+    DPLeaveSafeMode();
+    DPHandOffAndQuit(@[@"apply"]);
 }
 
 - (NSView *)rowForPatch:(DPPatch *)patch {
@@ -115,6 +125,5 @@
         anything |= any;
     }
     self.noResults.hidden = anything;
-    self.notice.hidden = [query stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet].length > 0;
 }
 @end

@@ -1,0 +1,59 @@
+#!/bin/sh
+# Checks which builds are offered the latest DiaTweaks release, without a network or Dia. Run after make.
+set -eu
+cd "$(dirname "$0")/.."
+diapatch=$PWD/build/diapatch
+[ -x "$diapatch" ] || { echo "$diapatch is missing: run make first" >&2; exit 1; }
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/tweaks-update-test.XXXXXX")
+trap 'rm -rf "$temporary"' EXIT
+mkdir "$temporary/home" "$temporary/compare"
+
+cat > "$temporary/release.json" <<'JSON'
+{"tag_name": "v2.0.0", "html_url": "https://example.test/v2.0.0", "assets": [
+  {"name": "DiaTweaks.zip", "size": 1, "digest": "sha256:aaaa", "browser_download_url": "https://example.test/DiaTweaks.zip"}]}
+JSON
+newer=1111111111111111111111111111111111111111
+same=2222222222222222222222222222222222222222
+older=3333333333333333333333333333333333333333
+forked=4444444444444444444444444444444444444444
+unknown=5555555555555555555555555555555555555555
+for pair in "$newer ahead" "$same identical" "$older behind" "$forked diverged"; do
+    set -- $pair
+    printf '{"status": "%s"}\n' "$2" > "$temporary/compare/v2.0.0...$1"
+done
+
+# check <name> <expected> [commit]: expected is whether the update check offers v2.0.0.
+failures=0
+check() {
+    available=$(DIAPATCH_HOME="$temporary/home" DIAPATCH_CACHE="$temporary/cache" DIAPATCH_FEED="file://$temporary/none.xml" \
+        DIAPATCH_RELEASES="file://$temporary/release.json" DIAPATCH_COMPARE="file://$temporary/compare" \
+        DIAPATCH_COMMIT="${3-}" "$diapatch" check --json | plutil -extract tweaks.available raw -o - -)
+    if [ "$available" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1: available is $available, expected $2" >&2; failures=$((failures + 1)); fi
+}
+
+rm -f "$temporary/home/release.plist"
+check "source build past the release" false "$newer"
+check "source build at the release" false "$same"
+check "source build before the release" true "$older"
+check "source build on another branch" true "$forked"
+check "source build GitHub doesn't know" true "$unknown"
+check "source build with a malformed commit" true "not-a-commit"
+
+# A release install is offered a release it doesn't have, whatever commit it was built from.
+printf '<plist><dict><key>digest</key><string>sha256:old</string><key>tag</key><string>v1.0.0</string></dict></plist>' > "$temporary/home/release.plist"
+check "release install, newer release" true "$newer"
+printf '<plist><dict><key>digest</key><string>sha256:aaaa</string><key>tag</key><string>v2.0.0</string></dict></plist>' > "$temporary/home/release.plist"
+mkdir -p "$temporary/home/bin" "$temporary/home/app-icons"
+touch "$temporary/home/bin/diapatch" "$temporary/home/bin/diatweaks" "$temporary/home/DiaPatches.dylib" "$temporary/home/patches.json"
+check "release install, same release" false "$older"
+# An older updater installs only the files it knows about, as v1.1.0 did with app-icons.
+rmdir "$temporary/home/app-icons"
+check "release install, same release missing a file" true "$older"
+
+# self-update says why it staged nothing.
+rm -f "$temporary/home/release.plist"
+message=$(DIAPATCH_HOME="$temporary/home" DIAPATCH_CACHE="$temporary/cache" DIAPATCH_RELEASES="file://$temporary/release.json" \
+    DIAPATCH_COMPARE="file://$temporary/compare" DIAPATCH_COMMIT="$newer" "$diapatch" self-update)
+case $message in *"older than the source build 1111111 "*) echo "ok   self-update names the reason" ;;
+    *) echo "FAIL self-update said: $message" >&2; failures=$((failures + 1)) ;; esac
+[ "$failures" = 0 ]

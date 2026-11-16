@@ -6,13 +6,12 @@ void DPForEachOption(DPPatch *patch, void (^body)(DPPatch *option)) {
 }
 
 NSString *DPWhyDisabled(DPPatch *patch) {
-    if (patch->inDia) return @"Dia does this itself in this version.";
     if (patch->unavailable) return @"Unavailable on this Dia version.";
-    DPPatch *required = DPRequired(patch);
-    return required && !required->on ? [NSString stringWithFormat:@"Needs %@.", required->title] : nil;
+    DPPatch *required = DPRequired(patch), *cover = DPPatchNamed(patch->coveredBy);
+    if (required && !required->on) return [NSString stringWithFormat:@"Needs %@.", required->title];
+    return cover && cover->on ? [NSString stringWithFormat:@"%@ hides this too.", cover->title] : nil;
 }
 
-// An option on, like showing the hidden toolbar on hover, means it doesn't hide for good.
 NSString *DPWhyHiddenBy(DPPatch *disabler) {
     if (!disabler || !disabler->on) return nil;
     __block BOOL shownSometimes = NO;
@@ -40,6 +39,12 @@ NSURL *DPWikiURL(DPPatch *patch) {
     self.action = @selector(flip);
     [self sync];
     return self;
+}
+
+- (NSSize)intrinsicContentSize {
+    static NSSize size;
+    if (!size.width) size = [super intrinsicContentSize];
+    return size;
 }
 
 - (void)flip {

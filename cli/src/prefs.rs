@@ -15,7 +15,6 @@ extern "C" {
     fn notify_post(name: *const c_char) -> u32;
 }
 
-/// The settings domain Dia's Patches pane uses: one bool per patch key.
 pub struct Prefs {
     name: String,
     domain: CFString,
@@ -29,7 +28,6 @@ impl Prefs {
         }
     }
 
-    /// `None` when unset, so the patch's default applies.
     pub fn get(&self, key: &str) -> Option<bool> {
         let key = CFString::new(key);
         let value = unsafe {
@@ -62,7 +60,6 @@ impl Prefs {
         }
     }
 
-    /// Writes the changes out and tells a running Dia to apply them.
     pub fn save(&self) -> Result<()> {
         if unsafe { CFPreferencesAppSynchronize(self.domain.as_concrete_TypeRef()) } == 0 {
             bail!("Couldn't save the settings in {}.", self.name);
@@ -76,7 +73,7 @@ impl Prefs {
     }
 }
 
-/// How NSString's boolValue, and so Dia, reads `defaults write com.diapatches key YES`.
+/// Reads strings the way NSString's boolValue, and so Dia, does.
 fn string_is_true(text: &str) -> bool {
     let number = text
         .trim_start()

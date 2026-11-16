@@ -1,5 +1,4 @@
 #!/bin/sh
-# Compare the same AppKit fixture against the upstream base and this checkout.
 set -eu
 cd "$(dirname "$0")/.."
 base="${1:-9d5a57061996840a9c7686bee756be09b317e441}"

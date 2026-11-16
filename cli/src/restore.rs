@@ -9,13 +9,11 @@ use crate::{
     ui::{self, Ui},
 };
 
-/// `diatweaks restore`: put the official Dia back, and with `purge` delete DiaTweaks' files too.
-pub fn run(env: &Env, ui: &Ui, purge: bool) -> Result<()> {
+pub fn run(env: &Env, ui: &Ui, mut purge: bool) -> Result<()> {
     let diapatch = Diapatch::find(env)?;
     if !ui.interactive && !ui.yes {
         bail!("Restoring asks for confirmation. Run it in a terminal, or add --yes.");
     }
-    let mut purge = purge;
     if !ui.yes {
         let restore = ui::prompt(
             cliclack::confirm(

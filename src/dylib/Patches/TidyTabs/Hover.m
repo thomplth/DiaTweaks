@@ -13,7 +13,6 @@ static NSTimer *DPTidyEase(CGFloat from, CGFloat to, void (^step)(CGFloat value,
     return timer;
 }
 
-// The view holding the sidebar's header, tab list and footer. It tracks the pointer; the divider decides.
 static NSView *DPSidebarOf(NSView *list) {
     for (NSView *view = list.superview; view; view = view.superview)
         if (DPSubview(view, DPDiaSidebarHeader) || DPSubview(view, DPDiaSidebarFooter)) return view;
@@ -29,7 +28,7 @@ static NSView *DPSidebarOf(NSView *list) {
     hover.list = list;
     DPSet(list, &DPHoverKey, hover);
     NSView *sidebar = DPSidebarOf(list);
-    // The sidebar's visibleRect spans the whole window, so the area follows its bounds instead.
+    // Not NSTrackingInVisibleRect: the sidebar's visibleRect spans the whole window.
     if (hover.tracking && hover.sidebar == sidebar && NSEqualRects(hover.tracking.rect, sidebar.bounds)) return hover;
     BOOL first = !hover.tracking;
     if (hover.tracking) [hover.sidebar removeTrackingArea:hover.tracking];
@@ -67,7 +66,6 @@ static NSView *DPSidebarOf(NSView *list) {
     self.progress = 0;
 }
 
-// The pointer is on the gap under the favorites, or on the row. Dia's own divider needs no tracking: see Separator.m.
 - (BOOL)containsPointer {
     NSView *list = self.list;
     NSWindow *window = list.window;
@@ -80,7 +78,6 @@ static NSView *DPSidebarOf(NSView *list) {
     if (_revealed == revealed || (revealed && !DPTidyTabs.on)) return;
     _revealed = revealed;
     [self.animation invalidate];
-    self.animation = nil;
     __weak DPTidyHover *weakSelf = self;
     self.animation = DPTidyEase(self.progress, revealed, ^(CGFloat value, BOOL done) {
         DPTidyHover *me = weakSelf;
@@ -103,7 +100,6 @@ static NSView *DPSidebarOf(NSView *list) {
 - (void)mouseMoved:(NSEvent *)event { [self track]; }
 - (void)mouseExited:(NSEvent *)event { [self track]; }
 
-// A short wait keeps the broom from flickering as the pointer crosses the divider's edge, and while a tab is dragged.
 - (void)track {
     if ([self containsPointer]) {
         [self.hideTimer invalidate];

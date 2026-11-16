@@ -1,7 +1,5 @@
 #import "HideToolbar.h"
 
-static void DPApplyShowOnNewTab(DPPatch *patch) { DPRelayoutPanes(); }
-
 DP_PATCH(DPShowToolbarOnNewTab) {
     .key = @"showToolbarOnNewTab",
     .order = 47,
@@ -10,6 +8,7 @@ DP_PATCH(DPShowToolbarOnNewTab) {
     .symbol = @"plus.square.fill.on.square.fill",
     .tint = @"systemIndigoColor",
     .requires = @"hideToolbar",
-    .apply = DPApplyShowOnNewTab,
+    .section = @"Showing the Toolbar",
+    .apply = DPApplyRelayoutPanes,
     .verify = DPVerifyKeptInPlace,
 };

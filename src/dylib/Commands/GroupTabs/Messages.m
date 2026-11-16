@@ -1,4 +1,3 @@
-// Reads values out of Dia's objects, which arrive as numbers, strings or objects depending on the call.
 #import "GroupTabs.h"
 #import <objc/message.h>
 
