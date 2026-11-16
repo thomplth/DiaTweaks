@@ -117,7 +117,9 @@ static pid_t launchHelper(NSString *home, int toHelper[2], int fromHelper[2]) {
     NSDictionary *bounds = sheetBounds();
     NSString *size = [NSString stringWithFormat:@"--window-size=%@,%@", bounds[@"width"], bounds[@"height"]];
     NSString *position = [NSString stringWithFormat:@"--window-position=%@,%@", bounds[@"left"], bounds[@"top"]];
-    const char *argv[] = { app.fileSystemRepresentation, profile.UTF8String, size.UTF8String, position.UTF8String, "--remote-debugging-pipe", "--mute-audio", NULL };
+    // The copied account store carries Dia's sync identity, so a syncing helper deletes whatever its empty profiles lack.
+    const char *argv[] = { app.fileSystemRepresentation, profile.UTF8String, size.UTF8String, position.UTF8String, "--remote-debugging-pipe", "--mute-audio",
+                           "-transientFeatureFlagOverrides", "sync-enabled=false", NULL };
 
     NSMutableArray<NSString *> *environment = [NSMutableArray array];
     for (char **e = environ; *e; e++) [environment addObject:@(*e)];
