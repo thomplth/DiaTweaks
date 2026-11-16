@@ -3,7 +3,9 @@
 extern DPPatch DPRenameShortcuts;
 
 static NSString *const DPRenameTitle = @"Rename…";
-static const NSInteger DPRenameGroupTag = 0xD1A7002;
+// Group Tabs tags its Tabs-menu items 0xD1A7001–0xD1A7006 (GroupTabs/Menu.m). Sharing one makes either tweak remove an
+// item Dia tracks, and Dia then aborts when its next Tabs-menu rebuild removes that item again.
+static const NSInteger DPRenameGroupTag = 0xD1A7100;
 static const NSEventModifierFlags DPShortcutModifiers =
     NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl;
 
