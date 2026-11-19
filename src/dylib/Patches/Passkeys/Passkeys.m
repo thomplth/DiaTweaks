@@ -74,6 +74,19 @@ static BOOL DPWrite(NSData *data, NSString *path) {
     return NO;
 }
 
+// Chromium skips registering an extension's service worker while its prefs record a registration for the manifest's
+// version, even after that registration is gone from the profile, and then every page's chrome.runtime.connect drops
+// unanswered. A version new to each launch makes it register the worker again.
+static NSString *DPLaunchVersion(void) {
+    static NSString *version;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        unsigned long long seconds = (unsigned long long)NSDate.date.timeIntervalSince1970;
+        version = [NSString stringWithFormat:@"1.%llu.%llu.%llu", (seconds >> 32) & 0xffff, (seconds >> 16) & 0xffff, seconds & 0xffff];
+    });
+    return version;
+}
+
 static BOOL DPSetUpPasskeys(void) {
     gWriteError = nil;
     NSData *key = DPExtensionKey();
@@ -81,6 +94,7 @@ static BOOL DPSetUpPasskeys(void) {
     NSMutableDictionary *manifest = [NSJSONSerialization JSONObjectWithData:DPExtensionFile(kFiles[0]) ?: NSData.data options:NSJSONReadingMutableContainers error:nil];
     if (![manifest isKindOfClass:NSMutableDictionary.class]) return NO;
     manifest[@"key"] = [key base64EncodedStringWithOptions:0];
+    manifest[@"version"] = DPLaunchVersion();
     if (!DPWrite([NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil], [DPExtensionFolder() stringByAppendingPathComponent:kFiles[0]])) return NO;
     for (int i = 1; i < 4; i++) {
         NSData *file = DPExtensionFile(kFiles[i]);
