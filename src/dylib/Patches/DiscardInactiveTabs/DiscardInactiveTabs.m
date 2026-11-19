@@ -72,7 +72,7 @@ DP_PATCH(DPDiscardInactiveTabs) {
     .key = @"discardInactiveTabs",
     .order = 82,
     .title = @"Discard Inactive Tabs",
-    .detail = @"Free the memory of tabs you haven't used for a while, and mark tabs that aren't loaded: a dotted ring around the favicon and a dimmed row. Closed pinned tabs dim too.",
+    .detail = @"Free the memory of tabs you haven't used for a while, and dim tabs that aren't loaded, including closed pinned tabs.",
     .symbol = @"memorychip",
     .tint = @"systemTealColor",
     .section = @"Sidebar & Tab Bar",

@@ -1,51 +1,10 @@
 #import "DiscardInactiveTabs.h"
 
-typedef NS_ENUM(NSInteger, DPTabLook) { DPTabLookNormal, DPTabLookDimmed, DPTabLookDiscarded };
-
 static const CGFloat DPDimmedAlpha = 0.55;
-static const CGFloat DPRingOutset = 3;
-static const void *DPRingKey = &DPRingKey;
-
-static void DPSetRing(NSView *icon, BOOL shown) {
-    CAShapeLayer *ring = DPGet(icon, DPRingKey);
-    if (!shown) {
-        [ring removeFromSuperlayer];
-        DPSet(icon, DPRingKey, nil);
-        return;
-    }
-    icon.wantsLayer = YES;
-    if (!ring) {
-        ring = [CAShapeLayer layer];
-        ring.fillColor = nil;
-        ring.lineWidth = 1.25;
-        ring.lineCap = kCALineCapRound;
-        ring.lineDashPattern = @[ @0.01, @3.2 ];
-        ring.zPosition = 10;
-        ring.actions = @{ @"strokeColor": NSNull.null, @"path": NSNull.null, @"bounds": NSNull.null, @"position": NSNull.null };
-        icon.layer.masksToBounds = NO;
-        [icon.layer addSublayer:ring];
-        DPSet(icon, DPRingKey, ring);
-    }
-    CGRect frame = CGRectInset(icon.bounds, -DPRingOutset, -DPRingOutset);
-    if (!CGRectEqualToRect(ring.frame, frame)) {
-        ring.frame = frame;
-        CGPathRef path = CGPathCreateWithEllipseInRect(CGRectMake(0, 0, frame.size.width, frame.size.height), NULL);
-        ring.path = path;
-        CGPathRelease(path);
-    }
-    [icon.effectiveAppearance performAsCurrentDrawingAppearance:^{
-        ring.strokeColor = NSColor.secondaryLabelColor.CGColor;
-    }];
-}
 
 static void DPSetDimmed(NSView *view, BOOL dimmed) {
     CGFloat alpha = dimmed ? DPDimmedAlpha : 1;
     if (view.alphaValue != alpha) view.alphaValue = alpha;
-}
-
-static void DPDress(NSView *dimmed, NSView *icon, DPTabLook look) {
-    DPSetDimmed(dimmed, look != DPTabLookNormal);
-    DPSetRing(icon, look == DPTabLookDiscarded);
 }
 
 static NSView *DPRowContent(NSView *row) {
@@ -58,48 +17,33 @@ static NSView *DPIconIn(NSView *root) {
     });
 }
 
-typedef NS_ENUM(NSInteger, DPPaneLoad) { DPPaneLoadRunning, DPPaneLoadDiscarded, DPPaneLoadNone };
-
-static DPPaneLoad DPLoadOfPanes(NSArray<NSString *> *panes, NSDictionary *states) {
-    DPPaneLoad load = DPPaneLoadNone;
+static BOOL DPAnyPaneRunning(NSArray<NSString *> *panes, NSDictionary *states) {
     for (NSString *pane in panes) {
         NSString *state = states[pane];
-        if (!state) continue;
-        if (![state isEqual:@"Discarded"] && ![state isEqual:@"Closed"]) return DPPaneLoadRunning;
-        load = DPPaneLoadDiscarded;
+        if (state && ![state isEqual:@"Discarded"] && ![state isEqual:@"Closed"]) return YES;
     }
-    return load;
-}
-
-static DPTabLook DPLookOfPanes(NSView *view, NSArray<NSString *> *panes, NSDictionary *states) {
-    switch (DPLoadOfPanes(panes, states)) {
-        case DPPaneLoadRunning: return DPTabLookNormal;
-        case DPPaneLoadDiscarded: return DPTabLookDiscarded;
-        case DPPaneLoadNone:
-            if (!DPIsKind(view, DPDiaTabView)) return DPTabLookDimmed;
-            return DPRowHasNoCloseButton(view) ? DPTabLookDimmed : DPTabLookDiscarded;
-    }
+    return NO;
 }
 
 NSArray<NSString *> *DPPanesOfTabView(NSView *view) {
     return DPIsKind(view, DPDiaTabView) ? DPPanesOfRow(view) : DPPanesOfDockItem(view);
 }
 
-static void DPDressTabViewAs(NSView *view, DPTabLook look) {
+static void DPDressTabViewAs(NSView *view, BOOL dimmed) {
     BOOL isRow = DPIsKind(view, DPDiaTabView);
-    NSView *dimmed = isRow ? DPRowContent(view) : view;
-    NSView *icon = DPIconIn(dimmed);
-    if (dimmed && icon) DPDress(isRow ? dimmed : icon, icon, look);
+    NSView *content = isRow ? DPRowContent(view) : view;
+    NSView *icon = DPIconIn(content);
+    if (content && icon) DPSetDimmed(isRow ? content : icon, dimmed);
 }
 
 NSArray<NSString *> *DPDressTabView(NSView *view, NSDictionary *states) {
     NSArray<NSString *> *panes = DPPanesOfTabView(view);
-    DPDressTabViewAs(view, DPLookOfPanes(view, panes, states));
+    DPDressTabViewAs(view, !DPAnyPaneRunning(panes, states));
     return panes;
 }
 
 void DPClearTabView(NSView *view) {
-    DPDressTabViewAs(view, DPTabLookNormal);
+    DPDressTabViewAs(view, NO);
 }
 
 NSString *DPVerifyTabIndicators(void) {
@@ -108,11 +52,10 @@ NSString *DPVerifyTabIndicators(void) {
     NSDictionary *states = on ? DPLoadedPaneStates() : nil;
     for (NSView *row in DPFindViews(DPDiaTabView)) {
         if (!DPIsTabViewTracked(row)) return @"a tab row isn't tracked";
-        NSView *content = DPRowContent(row), *icon = DPIconIn(content);
-        if (!content || !icon) return @"a tab has no favicon to mark";
-        DPTabLook look = on ? DPLookOfPanes(row, DPPanesOfRow(row), states) : DPTabLookNormal;
-        if ((DPGet(icon, DPRingKey) != nil) != (look == DPTabLookDiscarded)) return @"a tab's dotted ring is wrong";
-        if ((content.alphaValue < 1) != (look != DPTabLookNormal)) return @"a tab's dimming is wrong";
+        NSView *content = DPRowContent(row);
+        if (!content || !DPIconIn(content)) return @"a tab has no favicon to mark";
+        BOOL dimmed = on && !DPAnyPaneRunning(DPPanesOfRow(row), states);
+        if ((content.alphaValue < 1) != dimmed) return @"a tab's dimming is wrong";
     }
     return nil;
 }

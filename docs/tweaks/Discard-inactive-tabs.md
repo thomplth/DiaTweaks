@@ -14,10 +14,8 @@ It leaves a tab alone while it:
 
 ## How tabs look
 
-| Tab | Look |
-| --- | --- |
-| Discarded, or not loaded since Dia opened | Dotted ring around the favicon, dimmed |
-| Closed pinned tab, in the top row or the pinned list | Dimmed, no ring |
+Tabs that aren't loaded are dimmed: discarded tabs, tabs not loaded since Dia opened, and closed pinned tabs in the top row
+or the pinned list.
 
 A discarded tab loses what only lived in the page, such as its scroll position on some sites.
 

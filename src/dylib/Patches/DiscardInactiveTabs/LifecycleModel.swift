@@ -82,9 +82,3 @@ public func DPPanesOfRow(_ row: NSView) -> NSArray {
 public func DPPanesOfDockItem(_ item: NSView) -> NSArray {
     dictionaryPairs(field(item, "viewModel.delegate.contentControllers")).compactMap { rawValue($0.key) } as NSArray
 }
-
-/// Dia only takes the close button away from a pinned tab that is already closed.
-@_cdecl("DPRowHasNoCloseButton")
-public func DPRowHasNoCloseButton(_ row: NSView) -> Bool {
-    field(row, "viewModel.delegate.suppressesCloseButton") as? Bool ?? false
-}

@@ -6,7 +6,6 @@ BOOL DPDelegateShowsTabPage(id delegate);
 NSDictionary<NSString *, NSString *> *DPLoadedPaneStates(void);
 NSArray<NSString *> *DPPanesOfRow(NSView *row);
 NSArray<NSString *> *DPPanesOfDockItem(NSView *item);
-BOOL DPRowHasNoCloseButton(NSView *row);
 
 NSArray<NSString *> *DPPanesOfTabView(NSView *view);
 NSArray<NSString *> *DPDressTabView(NSView *view, NSDictionary *states);
