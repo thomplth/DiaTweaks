@@ -58,9 +58,13 @@ build/split-client-hello: tests/split-client-hello.m $(wildcard $(SPLIT)/Split.[
 build/vertical-tab-glow: tests/vertical-tab-glow.m $(wildcard src/dylib/Patches/HideVerticalTabGlow/*.[hm]) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ $<
 
-check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/patches.json
+build/discard-tab-tracking: tests/discard-tab-tracking.m src/dylib/Patches/DiscardInactiveTabs/TabTracking.m src/dylib/Patches/DiscardInactiveTabs/DiscardInactiveTabs.h | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ $<
+
+check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/discard-tab-tracking build/patches.json
 	tests/tweaks-update
 	build/group-tabs
+	build/discard-tab-tracking
 	build/mouse-back-forward
 	build/vertical-tab-glow
 	build/split-client-hello

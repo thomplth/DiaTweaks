@@ -15,12 +15,16 @@ static void DPDrainDressQueue(void) {
     if (!DPDiscardInactiveTabs.on) return [DPDressQueue removeAllObjects];
     CFTimeInterval deadline = CACurrentMediaTime() + DPDressBudget;
     NSArray<NSView *> *views = DPDressQueue.allObjects;
+    NSUInteger dressed = 0;
     for (NSView *view in views) {
         if (CACurrentMediaTime() > deadline) break;
         [DPDressQueue removeObject:view];
+        dressed++;
         if (view.window) [DPPanesByView setObject:[NSSet setWithArray:DPDressTabView(view, DPPaneStates)] forKey:view];
     }
-    if (!DPDressQueue.count || DPDrainScheduled) return;
+    // DPDressQueue.count still counts rows that were freed while queued, so it never reaches 0 and the drain would
+    // reschedule itself forever. Only rows left over from this snapshot need another turn.
+    if (dressed == views.count || DPDrainScheduled) return;
     DPDrainScheduled = YES;
     dispatch_async(dispatch_get_main_queue(), ^{ DPDrainDressQueue(); });
 }
